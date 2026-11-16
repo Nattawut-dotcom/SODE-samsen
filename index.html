@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>งานโสตทัศนศึกษา · โรงเรียนสามเสนวิทยาลัย</title>
+  <meta name="description" content="ระบบจองห้อง ขอใช้บริการโสตทัศนูปกรณ์ สถิติการใช้บริการ และบันทึกการใช้งบประมาณ งานโสตทัศนศึกษา โรงเรียนสามเสนวิทยาลัย">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div id="demo-bar" hidden></div>
+  <header class="nav">
+    <div class="nav-inner">
+      <a class="brand" href="#/">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <span>โสตทัศนศึกษา <em>สามเสนวิทยาลัย</em></span>
+      </a>
+      <nav id="nav-links" class="nav-links" aria-label="เมนูหลัก"></nav>
+      <div id="nav-user" class="nav-user"></div>
+    </div>
+  </header>
+
+  <main id="view" class="view"><div class="loading">กำลังโหลด…</div></main>
+
+  <footer class="footer">
+    <p>งานโสตทัศนศึกษา · โรงเรียนสามเสนวิทยาลัย</p>
+  </footer>
+
+  <div id="modal-root"></div>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/docx@8.5.0/build/index.umd.js" defer></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js" defer></script>
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
