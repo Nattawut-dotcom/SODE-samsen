@@ -267,26 +267,47 @@ async function home(el) {
 async function mountCalendar(host) {
   const cur = new Date();
   cur.setDate(1);
+  let mode = "month", day = today();
+  try { mode = localStorage.getItem("sode-cal-mode") === "day" ? "day" : "month"; } catch {}
   const DOW = ["อา.", "จ.", "อ.", "พ.", "พฤ.", "ศ.", "ส."];
-  async function draw() {
-    const y = cur.getFullYear(), m = cur.getMonth();
-    const first = new Date(y, m, 1);
-    const from = ymd(new Date(y, m, 1 - first.getDay()));
-    const cells = Math.ceil((first.getDay() + new Date(y, m + 1, 0).getDate()) / 7) * 7;
-    const to = addDays(from, cells - 1);
+  const HOUR_PX = 56;
+
+  async function load(from, to) {
     const [bk, ext] = await Promise.all([
       store.query("bookings", { range: ["date", from, to] }),
       store.query("calendarEvents", { range: ["date", from, to] }).catch(() => []),
     ]);
     const rows = bk.filter((b) => b.status === "approved" || b.status === "pending")
       .concat(ext.map((e) => ({ ...e, status: "gcal", roomName: e.location || "ไม่ระบุสถานที่", department: "Google Calendar" })));
+    rows.sort((p, q) => p.start.localeCompare(q.start));
+    return { rows, hasExt: ext.length > 0 };
+  }
+  const head = (title) => `<div class="cal-head"><h2>${title}</h2>
+    <div class="cal-nav"><div class="seg"><button data-mode="month" class="${mode === "month" ? "on" : ""}">เดือน</button><button data-mode="day" class="${mode === "day" ? "on" : ""}">วัน</button></div>
+      <button class="btn ghost sm" data-today>วันนี้</button><button class="icon-btn" data-prev aria-label="ก่อนหน้า">‹</button><button class="icon-btn" data-next aria-label="ถัดไป">›</button></div></div>`;
+  const legend = (hasExt, hint) => `<div class="legend"><span><i style="background:#e8f1fc;border:1px solid #b9d5f5"></i>อนุมัติแล้ว</span><span><i style="background:var(--amber-bg);border:1px solid #ecd79a"></i>รอตรวจสอบ</span>${hasExt ? `<span><i style="background:#efeaf8;border:1px solid #d3c7ee"></i>จาก Google Calendar</span>` : ""}<span>${hint}</span></div>`;
+  const draw = () => (mode === "day" ? drawDay() : drawMonth());
+  const redraw = () => draw().catch(fail);
+  function setMode(m) { mode = m; try { localStorage.setItem("sode-cal-mode", m); } catch {} }
+  function wire() {
+    $$("[data-mode]", host).forEach((b) => (b.onclick = () => { if (b.dataset.mode !== mode) { setMode(b.dataset.mode); redraw(); } }));
+    const step = (n) => { if (mode === "day") day = addDays(day, n); else cur.setMonth(cur.getMonth() + n); redraw(); };
+    $("[data-prev]", host).onclick = () => step(-1);
+    $("[data-next]", host).onclick = () => step(1);
+    $("[data-today]", host).onclick = () => { const n = new Date(); cur.setFullYear(n.getFullYear(), n.getMonth(), 1); day = today(); redraw(); };
+  }
+
+  // ----- มุมมองเดือน -----
+  async function drawMonth() {
+    const y = cur.getFullYear(), m = cur.getMonth();
+    const first = new Date(y, m, 1);
+    const from = ymd(new Date(y, m, 1 - first.getDay()));
+    const cells = Math.ceil((first.getDay() + new Date(y, m + 1, 0).getDate()) / 7) * 7;
+    const { rows, hasExt } = await load(from, addDays(from, cells - 1));
     const by = {};
     rows.forEach((b) => (by[b.date] ||= []).push(b));
-    Object.values(by).forEach((a) => a.sort((p, q) => p.start.localeCompare(q.start)));
     const t = today();
-    let html = `<div class="cal-head"><h2>${first.toLocaleDateString("th-TH", { month: "long", year: "numeric" })}</h2>
-      <div class="cal-nav"><button class="btn ghost sm" data-today>วันนี้</button><button class="icon-btn" data-prev aria-label="เดือนก่อนหน้า">‹</button><button class="icon-btn" data-next aria-label="เดือนถัดไป">›</button></div></div>
-      <div class="cal">${DOW.map((d) => `<div class="dow">${d}</div>`).join("")}`;
+    let html = head(first.toLocaleDateString("th-TH", { month: "long", year: "numeric" })) + `<div class="cal">${DOW.map((d) => `<div class="dow">${d}</div>`).join("")}`;
     for (let i = 0; i < cells; i++) {
       const d = addDays(from, i), list = by[d] || [], inMonth = parseYmd(d).getMonth() === m;
       html += `<button class="day${inMonth ? "" : " out"}${d === t ? " today" : ""}" data-d="${d}" aria-label="${thDate(d)} ${list.length} รายการ">
@@ -294,13 +315,49 @@ async function mountCalendar(host) {
         ${list.slice(0, 3).map((b) => `<span class="ev ${b.status}">${b.allDay ? "" : b.start + " "}${esc(b.title)}</span>`).join("")}
         ${list.length > 3 ? `<span class="ev-more">อีก ${list.length - 3} รายการ</span>` : ""}</button>`;
     }
-    html += `</div><div class="legend"><span><i style="background:#e8f1fc;border:1px solid #b9d5f5"></i>อนุมัติแล้ว</span><span><i style="background:var(--amber-bg);border:1px solid #ecd79a"></i>รอตรวจสอบ</span>${ext.length ? `<span><i style="background:#efeaf8;border:1px solid #d3c7ee"></i>จาก Google Calendar</span>` : ""}<span>แตะที่วันเพื่อดูรายละเอียดหรือจอง</span></div>`;
-    host.innerHTML = html;
-    $("[data-prev]", host).onclick = () => { cur.setMonth(cur.getMonth() - 1); draw().catch(fail); };
-    $("[data-next]", host).onclick = () => { cur.setMonth(cur.getMonth() + 1); draw().catch(fail); };
-    $("[data-today]", host).onclick = () => { const n = new Date(); cur.setFullYear(n.getFullYear(), n.getMonth(), 1); draw().catch(fail); };
-    $$(".day", host).forEach((b) => (b.onclick = () => dayModal(b.dataset.d, by[b.dataset.d] || [])));
+    host.innerHTML = html + `</div>` + legend(hasExt, "แตะที่วันเพื่อดูตารางรายชั่วโมง");
+    wire();
+    $$(".day", host).forEach((b) => (b.onclick = () => { day = b.dataset.d; setMode("day"); redraw(); }));
   }
+
+  // ----- มุมมองวัน: แสดงกิจกรรมเป็นรายชั่วโมง -----
+  async function drawDay() {
+    const { rows, hasExt } = await load(day, day);
+    const allDay = rows.filter((b) => b.allDay), timed = rows.filter((b) => !b.allDay);
+    const h0 = Math.min(7, ...timed.map((b) => Math.floor(toMin(b.start) / 60)));
+    const h1 = Math.max(18, ...timed.map((b) => Math.ceil(toMin(b.end) / 60)));
+    // จัดกิจกรรมที่เวลาซ้อนกันให้อยู่คนละคอลัมน์
+    const colEnd = [];
+    const placed = timed.map((b) => {
+      const s = toMin(b.start), e = Math.max(toMin(b.end), s + 25);
+      let c = colEnd.findIndex((x) => x <= s);
+      if (c < 0) { c = colEnd.length; colEnd.push(e); } else colEnd[c] = e;
+      return { b, s, e, c };
+    });
+    const n = Math.max(1, colEnd.length);
+    const px = (min) => ((min - h0 * 60) / 60) * HOUR_PX;
+    const now = new Date(), nowMin = now.getHours() * 60 + now.getMinutes();
+    const hours = Array.from({ length: h1 - h0 + 1 }, (_, i) => h0 + i);
+    host.innerHTML = head(thDateLong(day)) + `
+      <div class="dayv">
+        ${allDay.length ? `<div class="dayv-all"><span class="dayv-lb">ทั้งวัน</span><div>${allDay.map((b) => `<button class="ev ${b.status}" data-i="${rows.indexOf(b)}">${esc(b.title)}</button>`).join("")}</div></div>` : ""}
+        <div class="dayv-grid" style="height:${(h1 - h0) * HOUR_PX}px">
+          ${hours.map((h) => `<div class="dayv-hour" style="top:${(h - h0) * HOUR_PX}px"><span>${pad(h)}:00</span></div>`).join("")}
+          ${day === today() && nowMin >= h0 * 60 && nowMin <= h1 * 60 ? `<div class="dayv-now" style="top:${px(nowMin)}px" title="เวลาปัจจุบัน"></div>` : ""}
+          <div class="dayv-events">${placed.map((p) => `<button class="dayv-ev ${p.b.status}" data-i="${rows.indexOf(p.b)}"
+            style="top:${px(p.s)}px;height:${Math.max(24, px(p.e) - px(p.s) - 2)}px;left:calc(${(p.c / n) * 100}% + 2px);width:calc(${100 / n}% - 4px)"
+            aria-label="${p.b.start} ถึง ${p.b.end} ${esc(p.b.title)} ${esc(p.b.roomName)}"><div><b>${p.b.start}–${p.b.end}</b> ${esc(p.b.title)}</div><span>${esc(p.b.roomName)}</span></button>`).join("")}</div>
+        </div>
+      </div>
+      <div class="dayv-foot"><span class="clip">${rows.length ? `${rows.length} กิจกรรม` : "ไม่มีกิจกรรมในวันนี้"}</span>${day >= today() || isStaff() ? `<a class="btn sm" href="#/book?date=${day}">จองวันนี้</a>` : ""}</div>`
+      + legend(hasExt, "แตะที่กิจกรรมเพื่อดูรายละเอียด");
+    wire();
+    $$("[data-i]", host).forEach((el) => (el.onclick = () => {
+      const b = rows[+el.dataset.i];
+      if (b.status === "gcal") dayModal(day, [b]); else showBooking(b, redraw);
+    }));
+  }
+
   await draw();
 }
 
