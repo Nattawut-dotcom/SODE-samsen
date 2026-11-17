@@ -826,19 +826,38 @@ async function settings(el) {
         ${rooms.map((r) => `<tr data-id="${r.id}"><td><b>${esc(r.name)}</b>${r.note ? `<div class="muted">${esc(r.note)}</div>` : ""}</td><td>${esc(r.building)}</td><td class="num">${r.capacity || "–"}</td>
           <td>${r.active !== false ? `<span class="st st-approved">เปิดให้จอง</span>` : `<span class="st st-cancelled">ปิดชั่วคราว</span>`}</td><td><div class="acts"><button class="btn ghost sm" data-edit>แก้ไข</button></div></td></tr>`).join("")}</tbody></table></div>`
         : `<div class="empty">ยังไม่มีห้องในระบบ</div>`}
-      <div class="toolbar" style="margin-top:40px"><h2 style="font-size:21px">ผู้ใช้งาน</h2></div>
+      <div class="toolbar" style="margin-top:40px"><h2 style="font-size:21px">ผู้ใช้งาน</h2><span class="clip" id="u-count"></span><span class="spacer"></span>
+        <input class="inp sm" type="search" id="u-q" placeholder="ค้นหาชื่อหรืออีเมล" aria-label="ค้นหาผู้ใช้งาน" style="width:min(260px,100%)">
+        <select class="inp sm" id="u-role" aria-label="กรองตามสิทธิ์"><option value="">ทุกสิทธิ์</option><option value="staff">พนักงานโสต</option><option value="user">ผู้ขอใช้บริการ</option></select></div>
       <p class="note info" style="margin:0 0 12px">ผู้ใช้จะปรากฏในรายการนี้หลังจากเข้าสู่ระบบด้วย Google ครั้งแรก จากนั้นจึงกำหนดให้เป็น “พนักงานโสต” ได้</p>
       <div class="table-wrap"><table class="t"><thead><tr><th>ชื่อ</th><th>อีเมล</th><th>สิทธิ์</th></tr></thead><tbody>
-        ${users.map((u) => `<tr><td>${esc(u.name)}</td><td>${esc(u.email)}</td><td><select class="inp sm" data-role="${u.id || u.uid}" ${(u.id || u.uid) === state.user.uid ? "disabled title='เปลี่ยนสิทธิ์ของตัวเองไม่ได้'" : ""}>
-          <option value="user"${u.role !== "staff" ? " selected" : ""}>ผู้ขอใช้บริการ</option><option value="staff"${u.role === "staff" ? " selected" : ""}>พนักงานโสต</option></select></td></tr>`).join("")}</tbody></table></div>`;
+        ${users.map((u) => `<tr data-u="${esc(`${u.name || ""} ${u.email || ""}`.toLowerCase())}" data-ur="${u.role === "staff" ? "staff" : "user"}"><td>${esc(u.name)}</td><td>${esc(u.email)}</td><td><select class="inp sm" data-role="${u.id || u.uid}" ${(u.id || u.uid) === state.user.uid ? "disabled title='เปลี่ยนสิทธิ์ของตัวเองไม่ได้'" : ""}>
+          <option value="user"${u.role !== "staff" ? " selected" : ""}>ผู้ขอใช้บริการ</option><option value="staff"${u.role === "staff" ? " selected" : ""}>พนักงานโสต</option></select></td></tr>`).join("")}</tbody></table></div>
+      <div class="empty" id="u-empty" hidden style="padding:28px 16px">ไม่พบผู้ใช้งานที่ตรงกับคำค้น</div>`;
     const seed = $("#r-seed", host);
     if (seed) seed.onclick = async () => {
       try { for (const [i, r] of DEFAULT_ROOMS.entries()) await store.add("rooms", { ...r, active: true, order: i }); toast("เพิ่มห้องเริ่มต้นแล้ว"); draw().catch(fail); } catch (e) { fail(e); }
     };
     $("#r-add", host).onclick = () => roomForm(null, rooms.length, () => draw().catch(fail));
     $$("tr[data-id]", host).forEach((tr) => ($("[data-edit]", tr).onclick = () => roomForm(rooms.find((r) => r.id === tr.dataset.id), 0, () => draw().catch(fail))));
+    // ค้นหา / กรองผู้ใช้งาน (กรองในหน้า ไม่ต้องโหลดข้อมูลใหม่)
+    const uq = $("#u-q", host), ur = $("#u-role", host), uc = $("#u-count", host);
+    const filterUsers = () => {
+      const q = uq.value.trim().toLowerCase(), r = ur.value;
+      let shown = 0;
+      $$("tr[data-u]", host).forEach((tr) => {
+        const ok = (!q || tr.dataset.u.includes(q)) && (!r || tr.dataset.ur === r);
+        tr.hidden = !ok;
+        if (ok) shown++;
+      });
+      uc.textContent = q || r ? `พบ ${shown} จาก ${users.length} คน` : `${users.length} คน`;
+      $("#u-empty", host).hidden = shown > 0;
+    };
+    uq.oninput = filterUsers;
+    ur.onchange = filterUsers;
+    filterUsers();
     $$("[data-role]", host).forEach((s) => (s.onchange = async () => {
-      try { await store.update("users", s.dataset.role, { role: s.value }); toast("อัปเดตสิทธิ์แล้ว"); } catch (e) { fail(e); draw().catch(() => {}); }
+      try { await store.update("users", s.dataset.role, { role: s.value }); s.closest("tr").dataset.ur = s.value; toast("อัปเดตสิทธิ์แล้ว"); } catch (e) { fail(e); draw().catch(() => {}); }
     }));
   }
   await draw();
