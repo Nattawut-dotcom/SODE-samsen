@@ -433,7 +433,7 @@ label.f small, legend small { color: var(--ink-3); }
 
 /* แถบความว่างระดับหมวด */
 .igroup h2 { margin-bottom: 8px; }
-.catbar { margin-bottom: 14px; max-width: 560px; }
+.catbar { margin-bottom: 14px; width: 100%; }
 .catbar-track { display: flex; height: 8px; background: var(--gray-bg); border-radius: 4px; overflow: hidden; }
 .catbar-track span { display: block; height: 100%; }
 .cb-free { background: var(--green); }
