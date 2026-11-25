@@ -405,6 +405,23 @@ label.f small, legend small { color: var(--ink-3); }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 @media (max-width: 600px) { .kit-grid { grid-template-columns: 1fr; } .sel-row { grid-template-columns: 44px 1fr auto; } .sel-row .stepper { grid-column: 2 / 3; justify-self: start; } .sel-media { width: 44px; height: 44px; } .photo-field { align-items: flex-start; } }
 
+/* ส่วนอุปกรณ์เสริมกล้อง (เลนส์ / แฟลช / แบต / เมม) */
+.kit-sec { margin-top: 12px; }
+.kit-sec:first-of-type { margin-top: 0; }
+.kit-title { font-size: 14px; font-weight: 600; margin-bottom: 6px; }
+.kit-none { font-size: 13px; color: var(--ink-3); margin: 0 0 6px; }
+.kit-add { background-color: #fff; border-style: dashed; color: var(--link); }
+.kit .sel-row { background: #fff; }
+.kit-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px; }
+.kit-pair .kit-sec { margin: 0; background: #fff; border: 1px solid var(--line-soft); border-radius: 12px; padding: 10px 12px; }
+.kit-check { font-weight: 600; }
+.pack { margin-top: 10px; }
+.pack-h { font-size: 13.5px; margin-bottom: 6px; display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; }
+.pack-h .muted { color: var(--ink-3); font-size: 12.5px; }
+.add-menu select.btn { appearance: none; -webkit-appearance: none; padding-right: 19px; cursor: pointer; text-align: center; }
+.add-menu select.btn option { color: var(--ink); background: #fff; }
+@media (max-width: 600px) { .kit-pair { grid-template-columns: 1fr; } }
+
 @media print {
   body { font-family: "TH Sarabun New", var(--font); font-size: 19px; }
   .nav, .footer, #demo-bar, .toolbar, .btn { display: none !important; }
