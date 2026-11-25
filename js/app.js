@@ -523,7 +523,7 @@ async function items(el) {
       const byCat = new Map();
       shown.forEach((r) => { const c = r.it.category || "อื่น ๆ"; if (!byCat.has(c)) byCat.set(c, []); byCat.get(c).push(r); });
       groups.innerHTML = shown.length ? [...byCat.entries()].map(([c, rs]) => `
-        <section class="igroup"><h2><span>${catIcon(c)}</span>${esc(c)} <small>${rs.length} รายการ · ว่าง ${rs.reduce((s, r) => s + r.s.free, 0)}/${rs.reduce((s, r) => s + r.s.qty, 0)} ชิ้น</small></h2>
+        <section class="igroup"><h2><span>${catIcon(c)}</span>${esc(c)} <small>${rs.length} รายการ</small></h2>${catBar(rs)}
           <div class="igrid">${rs.map(({ it, s }) => itemCard(it, s)).join("")}</div></section>`).join("")
         : `<div class="empty">ไม่พบอุปกรณ์ที่ตรงกับเงื่อนไข</div>`;
       $$(".icard", groups).forEach((card) => {
@@ -577,15 +577,27 @@ async function imageData(file, max, quality) {
   return url;
 }
 
+// แถบสรุปความว่างของทั้งหมวด (แทนแถบในแต่ละการ์ด)
+function catBar(rs) {
+  const sum = (f) => rs.reduce((n, r) => n + f(r.s), 0);
+  const qty = sum((s) => s.qty);
+  const parts = [
+    ["free", "ว่าง", sum((s) => s.free)],
+    ["out", "ถูกยืม", sum((s) => (s.broken ? 0 : Math.min(s.out, s.qty - s.held)))],
+    ["av", "โสตใช้/ไม่ว่าง", sum((s) => s.held)],
+    ["broken", "ชำรุด/ซ่อม", sum((s) => (s.broken ? s.qty : 0))],
+  ].filter(([, , n]) => n > 0);
+  if (!qty) return "";
+  return `<div class="catbar"><div class="catbar-track" role="img" aria-label="${parts.map(([, l, n]) => `${l} ${n}`).join(", ")} จาก ${qty} ชิ้น">${parts.map(([k, , n]) => `<span class="cb-${k}" style="width:${(n / qty) * 100}%"></span>`).join("")}</div>
+    <div class="catbar-legend"><span class="catbar-total">ว่าง <b>${sum((s) => s.free)}</b> / ${qty} ชิ้น</span>${parts.filter(([k]) => k !== "free").map(([k, l, n]) => `<span><i class="cb-${k}"></i>${l} ${n}</span>`).join("")}</div></div>`;
+}
 function itemCard(it, s) {
-  const pct = s.qty ? Math.round((s.free / s.qty) * 100) : 0;
   const h = s.holders[0];
   return `<div class="icard ${s.key}" data-id="${it.id}" tabindex="0" role="button" aria-label="${esc(it.name)} ${ITEM_STATUS[s.key].label}">
     ${it.thumb ? `<div class="icard-photo"><img src="${it.thumb}" alt="" loading="lazy"></div>` : ""}
     <div class="icard-top"><span class="icard-ico">${catIcon(it.category)}</span>${itemBadge(s)}</div>
     <h3>${esc(it.name)}</h3>
     <div class="muted">${[it.model, it.code, it.location].filter(Boolean).map(esc).join(" · ") || "&nbsp;"}</div>
-    <div class="meter" aria-hidden="true"><span style="width:${pct}%"></span></div>
     <div class="icard-row"><span>ว่าง <b>${s.free}</b> / ${s.qty} ${nosOf(it).length ? "ชิ้น (มีหมายเลข)" : "ชิ้น"}</span>${s.pend ? `<span class="st st-pending">รออนุมัติ ${s.pend}</span>` : ""}</div>
     ${h ? `<div class="icard-who">ยืมโดย ${esc(h.borrowerName)} · คืน ${thShort(h.dueDate)}${s.holders.length > 1 ? ` และอีก ${s.holders.length - 1}` : ""}</div>` : ""}
     ${s.hold ? `<div class="icard-hold">${s.hold.kind === "av" ? "🎬" : "⛔"} ${HOLD_KINDS[s.hold.kind]}${s.held < s.qty ? ` ${s.held} ชิ้น` : ""}${s.hold.note ? ` · ${esc(s.hold.note)}` : ""}${s.hold.until ? ` · ถึง ${thShort(s.hold.until)}` : ""}</div>` : ""}
