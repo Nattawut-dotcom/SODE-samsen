@@ -381,18 +381,18 @@ async function home(el) {
     </div></div>
     <section class="band"><div class="wrap" style="padding-top:28px;padding-bottom:56px">
       <div class="kpis">
-        <div class="kpi"><div class="k">อุปกรณ์ทั้งหมด</div><div class="v">${num(sum("qty"))}<small>ชิ้น</small></div><div class="n">${itemsList.length} รายการ${broken ? ` · ชำรุด/ซ่อม ${broken}` : ""}</div></div>
-        <div class="kpi"><div class="k">ว่างพร้อมยืม</div><div class="v">${num(sum("free"))}<small>ชิ้น</small></div></div>
-        <div class="kpi"><div class="k">ถูกยืมอยู่</div><div class="v">${num(sum("out"))}<small>ชิ้น</small></div></div>
+        <div class="kpi"><div class="k">อุปกรณ์ทั้งหมด</div><div class="v">${num(itemsList.length)}<small>รายการ</small></div><div class="n">รวม ${num(sum("qty"))} ชิ้น${broken ? ` · ชำรุด/ซ่อม ${broken} ชิ้น` : ""}</div></div>
+        <div class="kpi"><div class="k">ว่างพร้อมยืม</div><div class="v">${num(sts.filter((x) => x.free > 0).length)}<small>รายการ</small></div><div class="n">${num(sum("free"))} ชิ้น</div></div>
+        <div class="kpi"><div class="k">ถูกยืมอยู่</div><div class="v">${num(sts.filter((x) => x.out > 0).length)}<small>รายการ</small></div><div class="n">${num(sum("out"))} ชิ้น</div></div>
         <div class="kpi"><div class="k">กำลังขออนุญาต</div><div class="v">${pending.length}<small>คำขอ</small></div>${isStaff() && pending.length ? `<div class="n"><a href="#/requests">ตรวจสอบคำขอ ›</a></div>` : ""}</div>
         <div class="kpi${overdue.length ? " kpi-alert" : ""}"><div class="k">เกินกำหนดคืน</div><div class="v">${overdue.length}<small>รายการ</small></div></div>
       </div>
+      <div class="card" style="margin-bottom:16px"><h2>อุปกรณ์ที่ถูกยืมอยู่ขณะนี้</h2><p class="sub">${outNow.length ? `${outNow.length} รายการ เรียงตามกำหนดคืน` : "ไม่มีอุปกรณ์ที่ถูกยืมอยู่"}</p>
+        ${outNow.length ? loanTable(outNow, { showStatus: true }) : ""}</div>
       <div class="home-grid">
         <div class="card" id="cal-card"></div>
         <div class="card" id="day-card"></div>
       </div>
-      <div class="card" style="margin-top:16px"><h2>อุปกรณ์ที่ถูกยืมอยู่ขณะนี้</h2><p class="sub">${outNow.length ? `${outNow.length} รายการ เรียงตามกำหนดคืน` : "ไม่มีอุปกรณ์ที่ถูกยืมอยู่"}</p>
-        ${outNow.length ? loanTable(outNow, { showStatus: true }) : ""}</div>
     </div></section>`;
   wireLoanTable(el, outNow, () => render());
   await mountCalendar($("#cal-card", el), $("#day-card", el), active);
