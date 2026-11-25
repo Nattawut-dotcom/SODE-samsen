@@ -422,6 +422,15 @@ label.f small, legend small { color: var(--ink-3); }
 .add-menu select.btn option { color: var(--ink); background: #fff; }
 @media (max-width: 600px) { .kit-pair { grid-template-columns: 1fr; } }
 
+/* สถานะที่พนักงานโสตตั้งเอง */
+.st-av { background: #efeaf8; color: #4b3a86; }
+.icard.av, .icard.busy { opacity: 0.85; }
+.icard-hold { font-size: 12.5px; color: #4b3a86; background: #f6f3fc; border-radius: 8px; padding: 5px 8px; }
+.held-list { margin-top: 14px; border-top: 1px solid var(--line-soft); padding-top: 12px; display: grid; gap: 8px; }
+.held-h { font-size: 13px; font-weight: 600; color: var(--ink-2); }
+.held-item { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 14px; }
+.held-item .muted { color: var(--ink-3); font-size: 12.5px; }
+
 @media print {
   body { font-family: "TH Sarabun New", var(--font); font-size: 19px; }
   .nav, .footer, #demo-bar, .toolbar, .btn { display: none !important; }
