@@ -1,12 +1,19 @@
 // ชั้นจัดการข้อมูล — มี 2 แบบ ใช้หน้าตาเดียวกัน
-//   1) โหมดตัวอย่าง (localStorage)   : ใช้เมื่อยังไม่ได้ใส่ค่า Firebase ใน config.js
+//   1) โหมดตัวอย่าง (localStorage)   : ใช้เมื่อยังไม่ได้ใส่ค่า Firebase ใน config.js (หรือเปิด localhost พร้อม ?demo=1)
 //   2) Firebase (Auth + Firestore)   : ใช้งานจริง
-import { CONFIG, DEFAULT_ROOMS, DEPARTMENTS, PURPOSES, SERVICES, EQUIPMENT, BUDGET_PROJECTS } from "./config.js";
-import { ymd, addDays, today, calendarEvent } from "./util.js";
+import { CONFIG, PURPOSES, DEFAULT_ITEMS, BUDGET_PROJECTS } from "./config.js";
+import { addDays, today, calendarEvent } from "./util.js";
 
-export const isDemo = !CONFIG.firebase.apiKey || CONFIG.firebase.apiKey === "PASTE_HERE";
+const forceDemo = /^(localhost|127\.0\.0\.1)$/.test(location.hostname) && /[?&]demo=1\b/.test(location.search);
+export const isDemo = forceDemo || !CONFIG.firebase.apiKey || CONFIG.firebase.apiKey === "PASTE_HERE";
 
 const MAX_BYTES = CONFIG.maxFileMB * 1024 * 1024;
+
+// ชื่อผู้ใช้ → อีเมลภายในระบบ (Firebase ต้องการรูปแบบอีเมล ผู้ใช้ไม่ต้องเห็นส่วนนี้)
+export const USER_DOMAIN = "users.sode-samsen-room.web.app";
+export const USERNAME_RE = /^[a-z0-9][a-z0-9._-]{2,29}$/;
+export const toEmail = (u) => `${String(u).trim().toLowerCase()}@${USER_DOMAIN}`;
+export const isUsernameEmail = (e) => String(e || "").toLowerCase().endsWith("@" + USER_DOMAIN);
 
 // ย่อรูปภาพก่อนเก็บ เพื่อประหยัดพื้นที่
 async function shrinkImage(file) {
@@ -29,85 +36,118 @@ function checkSize(file) {
   if (file.size > MAX_BYTES) throw new Error(`ไฟล์ "${file.name}" ใหญ่เกิน ${CONFIG.maxFileMB} MB`);
 }
 
+const BANNED_MSG = "บัญชีนี้ถูกระงับการใช้งาน กรุณาติดต่อพนักงานโสต";
+// ข้อมูลโปรไฟล์ที่ผู้ใช้แก้เองได้
+const PROFILE_KEYS = ["name", "type", "classroom", "studentNo", "department", "phone"];
+const pickProfile = (p = {}) => Object.fromEntries(PROFILE_KEYS.map((k) => [k, String(p[k] ?? "").trim()]));
+
+function toUser(id, d) {
+  return {
+    uid: id, name: d.name || d.username || d.email || "ผู้ใช้", email: d.email || "", username: d.username || "", photo: d.photo || "",
+    role: d.role || "user", type: d.type || "", classroom: d.classroom || "", studentNo: d.studentNo || "",
+    department: d.department || "", phone: d.phone || "", banned: !!d.banned,
+  };
+}
+
 // ============================================================
 //  โหมดตัวอย่าง
 // ============================================================
 function demoStore() {
-  const KEY = "sode-samsen-demo-v1";
+  const KEY = "sode-samsen-demo-v2";
   const memFiles = new Map(); // ไฟล์แนบในโหมดตัวอย่างเก็บในหน่วยความจำ (หายเมื่อรีเฟรช)
   let data = null;
   let listener = () => {};
   const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
   const USERS = {
-    staff: { uid: "demo-staff", name: "พนักงานโสต (ตัวอย่าง)", email: "staff@example.com", photo: "", role: "staff" },
-    user: { uid: "demo-teacher", name: "ครูผู้ขอใช้บริการ (ตัวอย่าง)", email: "teacher@example.com", photo: "", role: "user" },
+    staff: { id: "demo-staff", name: "พนักงานโสต (ตัวอย่าง)", email: "staff@example.com", role: "staff", type: "teacher", department: "กลุ่มบริหารทั่วไป" },
+    teacher: { id: "demo-teacher", name: "ครูผู้ยืม (ตัวอย่าง)", email: "teacher@example.com", role: "user", type: "teacher", department: "กลุ่มสาระการเรียนรู้ภาษาไทย" },
+    student: { id: "demo-student", name: "นักเรียน (ตัวอย่าง)", username: "student01", role: "user", type: "student", classroom: "ม.5/3", studentNo: "12" },
   };
 
   function seed() {
-    let s = 20261116;
+    let s = 20261125;
     const rnd = () => ((s = (s * 1664525 + 1013904223) % 4294967296) / 4294967296);
     const pick = (a) => a[Math.floor(rnd() * a.length)];
-    const some = (a, p) => a.filter(() => rnd() < p);
-    const rooms = DEFAULT_ROOMS.map((r, i) => ({ id: "room" + (i + 1), ...r, active: true, order: i }));
-    const titles = ["ประชุมกลุ่มสาระฯ", "สอนเสริม ม.1", "อบรมเชิงปฏิบัติการ", "ประชุมผู้ปกครอง", "วิชาเลือก ม.4", "ต้อนรับคณะศึกษาดูงาน", "ประชุมครูประจำเดือน", "ชุมนุมโสตทัศนศึกษา", "สอบเก็บคะแนน", "กิจกรรมแนะแนวศึกษาต่อ", "ประชุมคณะกรรมการนักเรียน", "ถ่ายทอดสดพิธีมอบรางวัล", "สัมมนาวิชาการ", "ซ้อมพิธีการ"];
-    const slots = [["08:10", "09:50"], ["09:50", "11:30"], ["12:20", "14:00"], ["13:10", "15:00"], ["15:00", "16:30"], ["08:30", "12:00"]];
-    const bookings = [], contacts = [];
+    const items = DEFAULT_ITEMS.map((x, i) => ({ id: "item" + (i + 1), ...x, condition: "พร้อมใช้งาน", allowStudents: true, location: "ห้องโสต อาคาร 3", note: "", createdAt: Date.now() }));
+    items.push({ id: "item99", name: "โปรเจกเตอร์พกพา", category: "จอภาพและการนำเสนอ", code: "PJ-01", quantity: 1, condition: "ส่งซ่อม", allowStudents: false, location: "", note: "หลอดภาพเสีย", createdAt: Date.now() });
+    const people = [
+      ["ครูสมชาย", "teacher", "กลุ่มสาระการเรียนรู้วิทยาศาสตร์และเทคโนโลยี"], ["ครูวิภา", "teacher", "กลุ่มสาระการเรียนรู้ภาษาต่างประเทศ"],
+      ["ครูอนันต์", "teacher", "กลุ่มบริหารกิจการนักเรียน"], ["ด.ช.ธนกร", "student", "ม.2/4"], ["น.ส.พิมพ์ชนก", "student", "ม.5/1"], ["นายภูมิ", "student", "ม.6/2"],
+    ];
+    const loans = [], contacts = [];
     const t = today();
-    for (let d = addDays(t, -110); d <= addDays(t, 24); d = addDays(d, 1)) {
+    for (let d = addDays(t, -120); d <= addDays(t, 10); d = addDays(d, 1)) {
       const wd = new Date(d + "T00:00").getDay();
-      if (wd === 0 || wd === 6) { if (rnd() > 0.12) continue; }
-      const n = 1 + Math.floor(rnd() * 4);
-      const used = new Set();
+      if (wd === 0 || wd === 6) continue;
+      const n = Math.floor(rnd() * 3);
       for (let i = 0; i < n; i++) {
-        const room = pick(rooms), [start, end] = pick(slots), k = room.id + start;
-        if (used.has(k)) continue;
-        used.add(k);
-        const id = uid(), mine = rnd() < 0.18;
-        const future = d >= t;
-        const r = rnd();
-        const status = future ? (r < 0.45 ? "pending" : "approved") : r < 0.9 ? "approved" : r < 0.95 ? "rejected" : "cancelled";
-        bookings.push({
-          id, uid: mine ? USERS.user.uid : "demo-other", requester: mine ? USERS.user.name : pick(["ครูสมชาย", "ครูวิภา", "ครูอนันต์", "ครูพิมพ์ชนก", "ครูธนากร"]),
-          title: pick(titles), roomId: room.id, roomName: room.name, date: d, start, end,
-          department: pick(DEPARTMENTS), purpose: pick(PURPOSES), services: some(SERVICES, 0.3), equipment: some(EQUIPMENT, 0.45),
-          attendees: 10 + Math.floor(rnd() * 120), note: "", status, reason: status === "rejected" ? "ห้องไม่ว่างในช่วงเวลาดังกล่าว" : "",
-          createdAt: Date.parse(d) - 3 * 864e5,
+        const [name, type, extra] = pick(people);
+        const it = pick(items.filter((x) => x.condition === "พร้อมใช้งาน"));
+        const qty = it.quantity > 2 ? 1 + Math.floor(rnd() * 2) : 1;
+        const due = addDays(d, Math.floor(rnd() * 4));
+        let status, returnedDate = "";
+        if (d > t) status = rnd() < 0.6 ? "pending" : "approved";
+        else if (due < addDays(t, -2)) { const r = rnd(); status = r < 0.9 ? "returned" : r < 0.95 ? "rejected" : "cancelled"; returnedDate = status === "returned" ? addDays(due, rnd() < 0.15 ? 2 : 0) : ""; }
+        else status = rnd() < 0.25 ? "pending" : "approved";
+        const id = uid();
+        loans.push({
+          id, uid: "demo-other", borrowerName: name, borrowerType: type,
+          classroom: type === "student" ? extra : "", studentNo: type === "student" ? String(1 + Math.floor(rnd() * 40)) : "",
+          department: type === "teacher" ? extra : "",
+          items: [{ itemId: it.id, name: it.name, category: it.category, code: it.code, qty }], itemIds: [it.id],
+          borrowDate: d, dueDate: due, purpose: pick(PURPOSES), note: "", status, returnedDate,
+          reason: status === "rejected" ? "อุปกรณ์ไม่ว่างในช่วงเวลาดังกล่าว" : "", createdAt: Date.parse(d) - 864e5,
         });
-        contacts.push({ id, uid: mine ? USERS.user.uid : "demo-other", phone: "08" + Math.floor(10000000 + rnd() * 89999999), email: "", date: d });
+        contacts.push({ id, uid: "demo-other", phone: "08" + Math.floor(10000000 + rnd() * 89999999), date: d });
       }
     }
     const P = BUDGET_PROJECTS;
-    const mk = (o) => ({ id: uid(), fiscalYear: 2570, files: [], note: "", createdAt: Date.now(), ...o });
+    const mk = (o) => ({ id: uid(), fiscalYear: 2570, files: [], note: "", createdAt: Date.now(), date: t, recorder: "สุชาติ", ...o });
     const budget = [
-      mk({ project: P[0].project, activity: P[0].activities[1], item: "ซื้อเครื่องปริ้นเตอร์", category: "ครุภัณฑ์", fundType: "รายได้สถานศึกษา", amount: 20000, date: "2026-10-14", recorder: "สุชาติ" }),
-      mk({ project: P[1].project, activity: P[1].activities[0], item: "เปลี่ยนไส้กรองตู้กดน้ำร้อน-เย็น", category: "วัสดุ", fundType: "รายได้สถานศึกษา", amount: 3584.5, date: "2026-10-28", recorder: "สุชาติ" }),
-      mk({ project: P[1].project, activity: P[1].activities[0], item: "ซ่อมบำรุงระบบจอ LED ห้องโสต (งบเหลือจ่าย)", category: "จ้าง", fundType: "รายได้เหลือจ่าย", amount: 497550, date: "2026-11-05", recorder: "สุชาติ" }),
+      mk({ project: P[0].project, activity: P[0].activities[1], item: "ซื้อเครื่องปริ้นเตอร์", category: "ครุภัณฑ์", fundType: "รายได้สถานศึกษา", amount: 20000 }),
+      mk({ project: P[1].project, activity: P[1].activities[0], item: "ซ่อมบำรุงระบบจอ LED ห้องโสต", category: "จ้าง", fundType: "อุดหนุน", amount: 497550 }),
     ];
-    return { role: "staff", signedIn: false, users: Object.values(USERS), rooms, bookings, bookingContacts: contacts, budget };
+    const users = Object.values(USERS).map((u) => ({ email: "", username: "", photo: "", classroom: "", studentNo: "", department: "", phone: "", banned: false, createdAt: Date.now(), ...u }));
+    users.push({ id: "demo-banned", name: "บัญชีที่ถูกระงับ (ตัวอย่าง)", username: "baduser", email: "", role: "user", type: "student", classroom: "ม.3/1", banned: true, createdAt: Date.now() });
+    return { role: "staff", signedIn: false, users, items, loans, loanContacts: contacts, budget };
   }
   const load = () => {
     try { data = JSON.parse(localStorage.getItem(KEY)); } catch { data = null; }
     if (!data) { data = seed(); save(); }
   };
   const save = () => { try { localStorage.setItem(KEY, JSON.stringify(data)); } catch {} };
-  const current = () => (data.signedIn ? { ...data.users.find((u) => u.uid === USERS[data.role].uid) } : null);
+  const current = () => {
+    if (!data.signedIn) return null;
+    const u = data.users.find((x) => x.id === USERS[data.role].id);
+    return u ? toUser(u.id, u) : null;
+  };
+  const match = (r, { eq, range, inq, contains } = {}) =>
+    (!eq || r[eq[0]] === eq[1]) && (!range || (r[range[0]] >= range[1] && r[range[0]] <= range[2])) && (!inq || inq[1].includes(r[inq[0]])) &&
+    (!contains || (r[contains[0]] || []).includes(contains[1]));
 
   return {
     async init() { load(); },
     onAuth(cb) { listener = cb; cb(current()); },
     async signIn() { data.signedIn = true; save(); listener(current()); },
+    async signInUsername() { data.role = "student"; data.signedIn = true; save(); listener(current()); },
+    async register({ profile }) {
+      const u = data.users.find((x) => x.id === USERS.student.id);
+      Object.assign(u, pickProfile(profile));
+      data.role = "student"; data.signedIn = true; save(); listener(current());
+    },
+    async createAccount({ username, profile }) {
+      if (data.users.some((x) => x.username === username)) throw Object.assign(new Error("dup"), { code: "auth/email-already-in-use" });
+      data.users.push({ id: uid(), username, email: "", photo: "", role: "user", banned: false, createdAt: Date.now(), ...pickProfile(profile) });
+      save();
+    },
+    async changePassword() {},
     async signOut() { data.signedIn = false; save(); listener(null); },
     demoRole: () => data.role,
     setDemoRole(r) { data.role = r; save(); listener(current()); },
     resetDemo() { localStorage.removeItem(KEY); load(); listener(current()); },
     async get(coll, id) { const r = (data[coll] || []).find((x) => x.id === id); return r ? structuredClone(r) : null; },
     async list(coll) { return structuredClone(data[coll] || []); },
-    async query(coll, { eq, range } = {}) {
-      let rows = data[coll] || [];
-      if (eq) rows = rows.filter((r) => r[eq[0]] === eq[1]);
-      if (range) rows = rows.filter((r) => r[range[0]] >= range[1] && r[range[0]] <= range[2]);
-      return structuredClone(rows);
-    },
+    async query(coll, q = {}) { return structuredClone((data[coll] || []).filter((r) => match(r, q))); },
     async add(coll, obj) { const id = uid(); (data[coll] ||= []).push({ ...obj, id }); save(); return id; },
     async set(coll, id, obj) {
       const arr = (data[coll] ||= []), i = arr.findIndex((r) => r.id === id);
@@ -123,7 +163,7 @@ function demoStore() {
     },
     async getFileBlob(meta) {
       const f = memFiles.get(meta.id);
-      if (!f) throw new Error("โหมดตัวอย่างเก็บไฟล์แนบไว้ชั่วคราวเท่านั้น (หายเมื่อรีเฟรชหน้า) — เมื่อเชื่อม Firebase แล้วไฟล์จะถูกเก็บถาวร");
+      if (!f) throw new Error("โหมดตัวอย่างเก็บไฟล์แนบไว้ชั่วคราวเท่านั้น (หายเมื่อรีเฟรชหน้า)");
       return f;
     },
     async removeFile(meta) { memFiles.delete(meta.id); },
@@ -133,7 +173,7 @@ function demoStore() {
       connected: () => true,
       async connect() {},
       async insert() { return "demo-" + uid(); },
-      async list() { return []; },
+      async patch() {},
       async remove() {},
     },
   };
@@ -145,8 +185,9 @@ function demoStore() {
 function firebaseStore() {
   const V = "10.12.2";
   const base = `https://www.gstatic.com/firebasejs/${V}`;
-  let A, F, auth, db;
+  let A, F, appM, auth, db;
   const CHUNK = 900 * 1024; // เอกสาร Firestore จำกัด 1 MB จึงแบ่งไฟล์เป็นชิ้น
+  let pendingProfile = null; // ข้อมูลโปรไฟล์ระหว่างสมัครด้วยชื่อผู้ใช้
 
   const rows = (snap) => snap.docs.map((d) => ({ ...d.data(), id: d.id }));
 
@@ -158,7 +199,9 @@ function firebaseStore() {
   try { tok = JSON.parse(sessionStorage.getItem(TOK_KEY)); } catch {}
   const tokValid = () => !!tok && tok.uid === auth?.currentUser?.uid && tok.exp > Date.now() + 60000;
   const clearTok = () => { tok = null; try { sessionStorage.removeItem(TOK_KEY); } catch {} };
+  const isGoogleUser = () => (auth?.currentUser?.providerData || []).some((p) => p.providerId === "google.com");
   async function calConnect() {
+    if (!isGoogleUser()) throw new Error("การเชื่อม Google Calendar ต้องเข้าสู่ระบบด้วยบัญชี Google");
     const p = new A.GoogleAuthProvider();
     p.addScope(CAL_SCOPE);
     p.setCustomParameters({ login_hint: auth.currentUser.email || "" });
@@ -177,34 +220,21 @@ function firebaseStore() {
     return r;
   }
   const calError = (status) =>
-    status === 403 ? "บัญชีนี้ไม่มีสิทธิ์แก้ไขปฏิทินงานโสตฯ หรือยังไม่ได้อนุญาตสิทธิ์ปฏิทินตอนล็อกอิน (ดูคู่มือ ขั้นที่ 8)"
+    status === 403 ? "บัญชีนี้ไม่มีสิทธิ์แก้ไขปฏิทินงานโสตฯ หรือยังไม่ได้อนุญาตสิทธิ์ปฏิทินตอนเชื่อมต่อ"
     : status === 404 ? "ไม่พบปฏิทิน — ตรวจสอบ calendarId ใน config.js และการแชร์ปฏิทิน"
     : `Google Calendar ตอบกลับข้อผิดพลาด ${status}`;
   const calendar = {
     enabled: !!CAL_ID, demo: false,
     connected: tokValid,
     connect: calConnect,
-    async insert(b) {
-      const r = await calApi("POST", "", calendarEvent(b));
+    async insert(l) {
+      const r = await calApi("POST", "", calendarEvent(l));
       if (!r.ok) throw new Error(calError(r.status));
       return (await r.json()).id;
     },
-    // อ่านนัดหมายทั้งหมดในช่วงวันที่ (เวลาเป็นเขตเวลาไทย)
-    async list(from, to) {
-      const out = [];
-      let pageToken = "";
-      do {
-        const qs = new URLSearchParams({
-          timeMin: `${from}T00:00:00+07:00`, timeMax: `${to}T23:59:59+07:00`, singleEvents: "true", orderBy: "startTime",
-          maxResults: "250", timeZone: "Asia/Bangkok", ...(pageToken ? { pageToken } : {}),
-        });
-        const r = await calApi("GET", "?" + qs);
-        if (!r.ok) throw new Error(calError(r.status));
-        const j = await r.json();
-        out.push(...(j.items || []));
-        pageToken = j.nextPageToken || "";
-      } while (pageToken);
-      return out;
+    async patch(eventId, body) {
+      const r = await calApi("PATCH", "/" + encodeURIComponent(eventId), body);
+      if (!r.ok && r.status !== 404 && r.status !== 410) throw new Error(calError(r.status));
     },
     async remove(eventId) {
       const r = await calApi("DELETE", "/" + encodeURIComponent(eventId));
@@ -215,10 +245,10 @@ function firebaseStore() {
   return {
     calendar,
     async init() {
-      const [appM, authM, fsM] = await Promise.all([
+      const [am, authM, fsM] = await Promise.all([
         import(`${base}/firebase-app.js`), import(`${base}/firebase-auth.js`), import(`${base}/firebase-firestore.js`),
       ]);
-      A = authM; F = fsM;
+      appM = am; A = authM; F = fsM;
       const app = appM.initializeApp(CONFIG.firebase);
       auth = A.getAuth(app);
       db = F.getFirestore(app);
@@ -227,18 +257,35 @@ function firebaseStore() {
       A.onAuthStateChanged(auth, async (u) => {
         if (!u) return cb(null);
         try {
-          if (CONFIG.allowedDomain && !(u.email || "").toLowerCase().endsWith("@" + CONFIG.allowedDomain.toLowerCase())) {
+          const usernameUser = isUsernameEmail(u.email);
+          if (!usernameUser && CONFIG.allowedDomain && !(u.email || "").toLowerCase().endsWith("@" + CONFIG.allowedDomain.toLowerCase())) {
             await A.signOut(auth);
             return cb(null, new Error(`กรุณาใช้อีเมล @${CONFIG.allowedDomain} ในการเข้าสู่ระบบ`));
           }
           const ref = F.doc(db, "users", u.uid);
           const snap = await F.getDoc(ref);
-          let role = "user";
+          let d;
           if (!snap.exists()) {
-            await F.setDoc(ref, { name: u.displayName || "", email: u.email || "", photo: u.photoURL || "", role: "user", createdAt: Date.now() });
-          } else role = snap.data().role || "user";
-          cb({ uid: u.uid, name: u.displayName || u.email, email: u.email, photo: u.photoURL || "", role });
-        } catch (e) { cb(null, e); }
+            const p = pendingProfile || {};
+            d = {
+              ...pickProfile({ name: u.displayName || "", ...p }),
+              email: usernameUser ? "" : u.email || "",
+              username: usernameUser ? u.email.split("@")[0] : "",
+              photo: u.photoURL || "", role: "user", banned: false, createdAt: Date.now(),
+            };
+            await F.setDoc(ref, d);
+            pendingProfile = null;
+          } else d = snap.data();
+          if (d.banned) {
+            await A.signOut(auth);
+            return cb(null, new Error(BANNED_MSG));
+          }
+          cb(toUser(u.uid, d));
+        } catch (e) {
+          // ถ้าอ่านโปรไฟล์ไม่ได้เพราะถูกลบ/ระงับ ให้ออกจากระบบ
+          if (String(e?.code || e?.message).includes("permission")) { await A.signOut(auth).catch(() => {}); return cb(null, new Error(BANNED_MSG)); }
+          cb(null, e);
+        }
       });
     },
     async signIn() {
@@ -246,12 +293,48 @@ function firebaseStore() {
       p.setCustomParameters({ prompt: "select_account", ...(CONFIG.allowedDomain ? { hd: CONFIG.allowedDomain } : {}) });
       await A.signInWithPopup(auth, p);
     },
+    async signInUsername(username, password) {
+      await A.signInWithEmailAndPassword(auth, toEmail(username), password);
+    },
+    // สมัครสมาชิกด้วยชื่อผู้ใช้/รหัสผ่าน (ผู้ใช้สมัครเอง)
+    async register({ username, password, profile }) {
+      pendingProfile = pickProfile(profile);
+      try {
+        const cred = await A.createUserWithEmailAndPassword(auth, toEmail(username), password);
+        await A.updateProfile(cred.user, { displayName: pendingProfile?.name || profile.name || username }).catch(() => {});
+      } catch (e) { pendingProfile = null; throw e; }
+    },
+    // พนักงานโสตสร้างบัญชีให้ผู้อื่น — ใช้แอป Firebase ชุดที่สอง จึงไม่ทำให้พนักงานโสตหลุดจากระบบ
+    async createAccount({ username, password, profile }) {
+      const app2 = appM.initializeApp(CONFIG.firebase, "create-" + Date.now());
+      const a2 = A.getAuth(app2);
+      try {
+        await A.setPersistence(a2, A.inMemoryPersistence);
+        const cred = await A.createUserWithEmailAndPassword(a2, toEmail(username), password);
+        await A.updateProfile(cred.user, { displayName: profile.name || username }).catch(() => {});
+        await F.setDoc(F.doc(db, "users", cred.user.uid), {
+          ...pickProfile(profile), email: "", username: username.toLowerCase(), photo: "", role: "user", banned: false,
+          createdBy: auth.currentUser.uid, createdAt: Date.now(),
+        });
+      } finally {
+        await A.signOut(a2).catch(() => {});
+        await appM.deleteApp(app2).catch(() => {});
+      }
+    },
+    // เปลี่ยนรหัสผ่านของตัวเอง (บัญชีชื่อผู้ใช้)
+    async changePassword(current, next) {
+      const u = auth.currentUser;
+      await A.reauthenticateWithCredential(u, A.EmailAuthProvider.credential(u.email, current));
+      await A.updatePassword(u, next);
+    },
     async signOut() { clearTok(); await A.signOut(auth); },
     async get(coll, id) { const s = await F.getDoc(F.doc(db, coll, id)); return s.exists() ? { ...s.data(), id: s.id } : null; },
     async list(coll) { return rows(await F.getDocs(F.collection(db, coll))); },
-    async query(coll, { eq, range } = {}) {
+    async query(coll, { eq, range, inq, contains } = {}) {
       const c = [];
+      if (contains) c.push(F.where(contains[0], "array-contains", contains[1]));
       if (eq) c.push(F.where(eq[0], "==", eq[1]));
+      if (inq) c.push(F.where(inq[0], "in", inq[1]));
       if (range) c.push(F.where(range[0], ">=", range[1]), F.where(range[0], "<=", range[2]));
       return rows(await F.getDocs(F.query(F.collection(db, coll), ...c)));
     },

@@ -1,12 +1,13 @@
-import { CONFIG, DEPARTMENTS, PURPOSES, SERVICES, EQUIPMENT, DEFAULT_ROOMS, BUDGET_CATEGORIES, FUND_TYPES, BUDGET_PROJECTS } from "./config.js";
-import { store, isDemo } from "./store.js";
+import { CONFIG, DEPARTMENTS, PURPOSES, USER_TYPES, CATEGORIES, CONDITIONS, DEFAULT_ITEMS, BUDGET_CATEGORIES, FUND_TYPES, BUDGET_PROJECTS } from "./config.js";
+import { store, isDemo, USERNAME_RE } from "./store.js";
 import {
-  $, $$, esc, pad, ymd, parseYmd, today, addDays, thDate, thDateLong, money, num, fiscalYearOf, fiscalRange, fiscalLabel,
-  toMin, hoursOf, overlaps, mondayOf, STATUS, computeStats, sortedEntries, monthShort, weekLabel,
+  $, $$, esc, pad, ymd, parseYmd, today, addDays, daysBetween, thDate, thDateLong, thShort, money, num, fiscalYearOf, fiscalRange, fiscalLabel,
+  mondayOf, typeLabel, shortType, catIcon, catOrder, LOAN_STATUS, ITEM_STATUS, isOverdue, loanState, ACTIVE, loanUnits, itemsText,
+  loanOn, itemStatus, availableIn, computeStats, sortedEntries, monthShort, weekLabel, inAppBrowser,
 } from "./util.js";
-import { exportBookingReport, exportBudgetReport } from "./report.js";
+import { exportLoanReport, exportBudgetReport } from "./report.js";
 
-const state = { user: null, rooms: null, pending: 0 };
+const state = { user: null, items: null, pending: 0, authMsg: "" };
 const view = $("#view");
 let renderToken = 0;
 
@@ -24,9 +25,17 @@ function toast(msg, isErr = false) {
 const fail = (e) => { console.error(e); toast(friendly(e), true); };
 function friendly(e) {
   const m = String(e?.code || e?.message || e);
-  if (m.includes("permission-denied") || m.includes("insufficient permissions")) return "ไม่มีสิทธิ์ทำรายการนี้ (ตรวจสอบสิทธิ์ผู้ใช้หรือ Firestore Rules)";
+  if (/invalid-credential|wrong-password|user-not-found|invalid-email|invalid-login/.test(m)) return "ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง";
+  if (m.includes("email-already-in-use")) return "ชื่อผู้ใช้นี้ถูกใช้แล้ว กรุณาเลือกชื่ออื่น";
+  if (m.includes("weak-password")) return "รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร";
+  if (m.includes("operation-not-allowed")) return "ระบบยังไม่เปิดการเข้าสู่ระบบด้วยชื่อผู้ใช้ กรุณาติดต่อพนักงานโสต";
+  if (m.includes("too-many-requests")) return "ลองหลายครั้งเกินไป กรุณารอสักครู่แล้วลองใหม่";
+  if (m.includes("requires-recent-login")) return "กรุณาออกจากระบบแล้วเข้าใหม่ก่อนทำรายการนี้";
+  if (m.includes("popup-blocked")) return "เบราว์เซอร์บล็อกหน้าต่างเข้าสู่ระบบ กรุณาอนุญาตป๊อปอัปแล้วลองใหม่";
+  if (m.includes("permission-denied") || m.includes("insufficient permissions")) return "ไม่มีสิทธิ์ทำรายการนี้";
   if (m.includes("popup-closed") || m.includes("cancelled-popup")) return "ยกเลิกการเข้าสู่ระบบ";
-  if (m.includes("unauthorized-domain")) return "โดเมนนี้ยังไม่ได้รับอนุญาตใน Firebase Authentication (ดูคู่มือ ขั้นตอนที่ 6)";
+  if (m.includes("unauthorized-domain")) return "โดเมนนี้ยังไม่ได้รับอนุญาตใน Firebase Authentication";
+  if (m.includes("disallowed_useragent") || m.includes("web-storage-unsupported")) return "เบราว์เซอร์ในแอปนี้เข้าสู่ระบบด้วย Google ไม่ได้ กรุณาเปิดใน Safari หรือ Chrome";
   if (m.includes("network")) return "เชื่อมต่ออินเทอร์เน็ตไม่ได้ กรุณาลองใหม่";
   return e?.message || m;
 }
@@ -47,7 +56,6 @@ function openModal(title, html) {
   m.dismiss = dismiss;
   return m;
 }
-
 function askText(title, label, okLabel) {
   return new Promise((res) => {
     const m = openModal(title, `<label class="f"><span>${esc(label)}</span><textarea class="inp" rows="3"></textarea></label>
@@ -72,113 +80,77 @@ document.addEventListener("mousemove", (e) => {
   tip.style.top = e.clientY + "px";
 });
 
-const stBadge = (s) => `<span class="st ${STATUS[s]?.cls || ""}">${STATUS[s]?.label || s}</span>`;
+const stBadge = (l) => { const k = typeof l === "string" ? l : loanState(l); return `<span class="st ${LOAN_STATUS[k]?.cls || ""}">${LOAN_STATUS[k]?.label || k}</span>`; };
+const itemBadge = (s) => `<span class="st ${ITEM_STATUS[s.key].cls}">${ITEM_STATUS[s.key].label}</span>`;
+const typeBadge = (t) => `<span class="tbadge ${t === "student" ? "student" : "teacher"}">${shortType(t)}</span>`;
 const opts = (arr, sel, placeholder) =>
   (placeholder ? `<option value="">${placeholder}</option>` : "") + arr.map((x) => `<option${x === sel ? " selected" : ""}>${esc(x)}</option>`).join("");
-const chips = (name, arr, sel = []) =>
-  `<div class="chips">${arr.map((x) => `<label class="chip"><input type="checkbox" name="${name}" value="${esc(x)}"${sel.includes(x) ? " checked" : ""}><span>${esc(x)}</span></label>`).join("")}</div>`;
-const tagsOf = (b) =>
-  `<div class="tags">${(b.services || []).map((x) => `<span class="tag">${esc(x)}</span>`).join("")}${(b.equipment || []).map((x) => `<span class="tag eq">${esc(x)}</span>`).join("")}</div>`;
 const fmtSize = (n) => (n > 1048576 ? (n / 1048576).toFixed(1) + " MB" : Math.max(1, Math.round(n / 1024)) + " KB");
 const isStaff = () => state.user?.role === "staff";
+const who = (l) => `${esc(l.borrowerName)} ${typeBadge(l.borrowerType)}<div class="muted">${esc(l.borrowerType === "student" ? [l.classroom, l.studentNo && "เลขที่ " + l.studentNo].filter(Boolean).join(" ") : l.department || "")}</div>`;
+const dateRange = (l) => `${thShort(l.borrowDate)}${l.dueDate !== l.borrowDate ? ` – ${thShort(l.dueDate)}` : ""}`;
+const typeChips = (name, sel) => `<div class="chips">${Object.entries(USER_TYPES).map(([k, v]) => `<label class="chip"><input type="radio" name="${name}" value="${k}"${sel === k ? " checked" : ""} required><span>${v}</span></label>`).join("")}</div>`;
 
-async function getRooms(force) {
-  if (!state.rooms || force) state.rooms = (await store.list("rooms")).sort((a, b) => (a.order ?? 0) - (b.order ?? 0) || a.name.localeCompare(b.name, "th"));
-  return state.rooms;
+async function getItems(force) {
+  if (!state.items || force) {
+    state.items = (await store.list("items")).sort((a, b) => catOrder(a.category) - catOrder(b.category) || (a.category || "").localeCompare(b.category || "", "th") || a.name.localeCompare(b.name, "th"));
+  }
+  return state.items;
 }
+const activeLoans = () => store.query("loans", { inq: ["status", ACTIVE] });
 async function refreshPending() {
   if (!isStaff()) return;
-  try { state.pending = (await store.query("bookings", { eq: ["status", "pending"] })).length; } catch { state.pending = 0; }
+  try { state.pending = (await store.query("loans", { eq: ["status", "pending"] })).length; } catch { state.pending = 0; }
   const c = $("#nav-links .count");
   if (c) { c.textContent = state.pending; c.hidden = !state.pending; }
 }
 
-// ----- Google Calendar -----
+// ----- Google Calendar (ลงนัดหมายเมื่ออนุมัติการยืม) -----
 const cal = store.calendar;
-// เปิดหน้าต่างขอสิทธิ์ปฏิทิน (ต้องเรียกทันทีหลังการคลิก ไม่เช่นนั้นเบราว์เซอร์อาจบล็อกป๊อปอัป)
 async function calReady() {
   if (!cal.enabled || cal.connected()) return;
   try { await cal.connect(); } catch (e) { console.warn(e); }
 }
-async function calAdd(b) {
-  if (!cal.enabled || b.calendarEventId) return null;
+async function calAdd(l) {
+  if (!cal.enabled || l.calendarEventId || !cal.connected()) return null;
   try {
-    const id = await cal.insert(b);
-    await store.update("bookings", b.id, { calendarEventId: id });
-    b.calendarEventId = id;
+    const id = await cal.insert(l);
+    await store.update("loans", l.id, { calendarEventId: id });
+    l.calendarEventId = id;
     return true;
   } catch (e) { console.error(e); toast("บันทึกแล้ว แต่ลงปฏิทินไม่สำเร็จ: " + friendly(e), true); return false; }
 }
-async function calRemove(b) {
-  if (!cal.enabled || !b.calendarEventId) return null;
+async function calRemove(l) {
+  if (!cal.enabled || !l.calendarEventId) return null;
   try {
-    await cal.remove(b.calendarEventId);
-    await store.update("bookings", b.id, { calendarEventId: "" });
-    b.calendarEventId = "";
+    await cal.remove(l.calendarEventId);
+    await store.update("loans", l.id, { calendarEventId: "" });
+    l.calendarEventId = "";
     return true;
   } catch (e) { console.error(e); toast("ลบออกจากปฏิทินไม่สำเร็จ: " + friendly(e), true); return false; }
 }
-// ลบนัดหมายของรายการที่ผู้ขอยกเลิกเอง (ผู้ขอไม่มีสิทธิ์แก้ปฏิทิน จึงให้ฝั่งพนักงานโสตเก็บกวาด)
-async function calSweep() {
-  if (!cal.enabled || !cal.connected()) return;
-  try {
-    const rows = await store.query("bookings", { range: ["date", today(), "9999-12-31"] });
-    for (const b of rows) if (b.calendarEventId && b.status !== "approved") await calRemove(b);
-  } catch (e) { console.warn(e); }
-}
-
-// ดึงนัดหมายจาก Google Calendar มาเก็บในฐานข้อมูล เพื่อให้ทุกคนเห็นในปฏิทินของเว็บ
-// (ทำงานเมื่อพนักงานโสตเชื่อมต่อปฏิทินอยู่ — ครูทั่วไปไม่ต้องขอสิทธิ์ปฏิทิน)
-const SYNC_KEY = "sode-cal-sync";
-async function calSync(force) {
-  if (!isStaff() || !cal.enabled || cal.demo || !cal.connected()) return null;
-  const last = +(sessionStorage.getItem(SYNC_KEY) || 0);
-  if (!force && Date.now() - last < 5 * 60000) return null;
-  sessionStorage.setItem(SYNC_KEY, String(Date.now()));
-  const from = addDays(today(), -7), to = addDays(today(), 120);
-  const want = new Map();
-  for (const e of await cal.list(from, to)) {
-    if (e.status === "cancelled") continue;
-    if (e.extendedProperties?.private?.sodeBookingId) continue; // สร้างจากเว็บอยู่แล้ว
-    if (e.visibility === "private" || e.visibility === "confidential") continue; // ไม่นำนัดหมายส่วนตัวมาแสดง
-    const title = (e.summary || "(ไม่มีชื่อ)").slice(0, 200), location = (e.location || "").slice(0, 200);
-    if (e.start?.date) {
-      const endD = e.end?.date || addDays(e.start.date, 1);
-      for (let d = e.start.date, n = 0; d < endD && n < 31; d = addDays(d, 1), n++)
-        if (d >= from && d <= to) want.set(`${e.id}_${d}`, { title, location, date: d, start: "00:00", end: "23:59", allDay: true });
-    } else if (e.start?.dateTime) {
-      const d = e.start.dateTime.slice(0, 10);
-      const sameDay = e.end?.dateTime?.slice(0, 10) === d;
-      want.set(e.id, { title, location, date: d, start: e.start.dateTime.slice(11, 16), end: sameDay ? e.end.dateTime.slice(11, 16) : "23:59", allDay: false });
-    }
-  }
-  const have = await store.query("calendarEvents", { range: ["date", from, to] });
-  const haveMap = new Map(have.map((x) => [x.id, x]));
-  let changed = 0;
-  for (const [id, v] of want) {
-    const h = haveMap.get(id);
-    if (!h || ["title", "location", "date", "start", "end"].some((k) => h[k] !== v[k])) { await store.set("calendarEvents", id, v); changed++; }
-  }
-  for (const h of have) if (!want.has(h.id)) { await store.remove("calendarEvents", h.id); changed++; }
-  return changed;
+async function calReturned(l) {
+  if (!cal.enabled || !l.calendarEventId || !cal.connected()) return;
+  try { await cal.patch(l.calendarEventId, { summary: `✅ คืนแล้ว: ${itemsText(l)} — ${l.borrowerName}`.slice(0, 250), end: { date: addDays(l.returnedDate, 1) } }); }
+  catch (e) { console.warn(e); }
 }
 
 // ============================================================
 //  แถบนำทาง + Router
 // ============================================================
-const NAV_USER = [["", "หน้าหลัก"], ["book", "จองห้อง / ขอใช้บริการ"], ["my", "รายการของฉัน"]];
-const NAV_STAFF = [["requests", "คำขอใช้บริการ"], ["stats", "สถิติ"], ["budget", "งบประมาณ"], ["settings", "ตั้งค่า"]];
+const NAV_USER = [["", "หน้าหลัก"], ["items", "สถานะอุปกรณ์"], ["borrow", "ยืมอุปกรณ์"], ["my", "รายการของฉัน"]];
+const NAV_STAFF = [["requests", "คำขอยืม-คืน"], ["stats", "สถิติ"], ["budget", "งบประมาณ"], ["settings", "ตั้งค่า"]];
 const STAFF_ONLY = new Set(NAV_STAFF.map((x) => x[0]));
 
 function renderNav(active) {
   const u = state.user;
-  const links = !u ? [] : [...NAV_USER, ...(isStaff() ? NAV_STAFF : [])];
+  const links = !u || !u.type ? [] : [...NAV_USER, ...(isStaff() ? NAV_STAFF : [])];
   $("#nav-links").innerHTML = links
     .map(([p, l]) => `<a href="#/${p}" class="${p === active ? "active" : ""}">${l}${p === "requests" ? `<span class="count" ${state.pending ? "" : "hidden"}>${state.pending}</span>` : ""}</a>`)
     .join("");
   $("#nav-user").innerHTML = u
-    ? `${u.photo ? `<img class="avatar" src="${esc(u.photo)}" alt="" referrerpolicy="no-referrer">` : `<span class="avatar">${esc((u.name || "?")[0])}</span>`}
-       <span class="uname">${esc(u.name)}</span><span class="role-tag">${isStaff() ? "พนักงานโสต" : "ผู้ขอใช้บริการ"}</span>
+    ? `<a class="nav-me" href="#/profile" title="ข้อมูลของฉัน">${u.photo ? `<img class="avatar" src="${esc(u.photo)}" alt="" referrerpolicy="no-referrer">` : `<span class="avatar">${esc((u.name || "?")[0])}</span>`}
+       <span class="uname">${esc(u.name)}</span></a><span class="role-tag">${isStaff() ? "พนักงานโสต" : shortType(u.type)}</span>
        <button class="linkbtn" id="btn-out">ออกจากระบบ</button>`
     : "";
   const out = $("#btn-out");
@@ -190,14 +162,15 @@ function renderDemoBar() {
   if (!isDemo) return;
   bar.hidden = false;
   const r = store.demoRole();
-  bar.innerHTML = `<span><b>โหมดตัวอย่าง</b> · ยังไม่ได้เชื่อมต่อ Firebase ข้อมูลเก็บในเบราว์เซอร์นี้เท่านั้น</span>
-    <span>ดูในมุมมอง <button data-r="user" class="${r === "user" ? "on" : ""}">ครู / ผู้ขอใช้บริการ</button> <button data-r="staff" class="${r === "staff" ? "on" : ""}">พนักงานโสต</button></span>
+  const b = (k, l) => `<button data-r="${k}" class="${r === k ? "on" : ""}">${l}</button>`;
+  bar.innerHTML = `<span><b>โหมดตัวอย่าง</b> · ข้อมูลเก็บในเบราว์เซอร์นี้เท่านั้น</span>
+    <span>ดูในมุมมอง ${b("teacher", "ครู")} ${b("student", "นักเรียน")} ${b("staff", "พนักงานโสต")}</span>
     <button data-reset>รีเซ็ตข้อมูลตัวอย่าง</button>`;
-  $$("[data-r]", bar).forEach((b) => (b.onclick = () => store.setDemoRole(b.dataset.r)));
-  $("[data-reset]", bar).onclick = () => { state.rooms = null; store.resetDemo(); toast("รีเซ็ตข้อมูลตัวอย่างแล้ว"); };
+  $$("[data-r]", bar).forEach((x) => (x.onclick = () => store.setDemoRole(x.dataset.r)));
+  $("[data-reset]", bar).onclick = () => { state.items = null; store.resetDemo(); toast("รีเซ็ตข้อมูลตัวอย่างแล้ว"); };
 }
 
-const ROUTES = { "": home, book, my, requests, stats, budget, settings };
+const ROUTES = { "": home, items, borrow, my, profile, requests, stats, budget, settings };
 
 async function render() {
   const tk = ++renderToken;
@@ -206,6 +179,7 @@ async function render() {
   const params = new URLSearchParams(qs || "");
   let name = ROUTES[path] ? path : "";
   if (!state.user) name = "";
+  else if (!state.user.type) name = "profile"; // ต้องกรอกข้อมูลผู้ใช้ก่อน
   if (STAFF_ONLY.has(name) && !isStaff()) name = "";
   renderNav(name);
   const el = document.createElement("div");
@@ -221,224 +195,518 @@ async function render() {
 }
 
 // ============================================================
-//  หน้าหลัก
+//  เข้าสู่ระบบ / สมัครสมาชิก
 // ============================================================
-const G_LOGO = `<svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9.1 3.6l6.8-6.8C35.8 2.4 30.3 0 24 0 14.6 0 6.5 5.4 2.6 13.2l7.9 6.2C12.4 13.7 17.7 9.5 24 9.5z"/><path fill="#4285F4" d="M46.5 24.5c0-1.6-.1-3.1-.4-4.5H24v9h12.7c-.6 3-2.3 5.500-4.800 7.200l7.700 6c4.500-4.200 7.100-10.400 7.100-17.700z"/><path fill="#FBBC05" d="M10.500 28.600A14.500 14.500 0 0 1 9.700 24c0-1.600.3-3.200.800-4.600l-7.900-6.200A24 24 0 0 0 0 24c0 3.900.9 7.500 2.600 10.800l7.900-6.200z"/><path fill="#34A853" d="M24 48c6.500 0 11.900-2.100 15.900-5.800l-7.700-6c-2.100 1.400-4.900 2.300-8.200 2.300-6.300 0-11.600-4.200-13.500-9.900l-7.900 6.200C6.500 42.600 14.600 48 24 48z"/></svg>`;
+const G_LOGO = `<svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9.1 3.6l6.8-6.8C35.8 2.4 30.3 0 24 0 14.6 0 6.5 5.4 2.6 13.2l7.9 6.2C12.4 13.7 17.7 9.5 24 9.5z"/><path fill="#4285F4" d="M46.5 24.5c0-1.6-.1-3.1-.4-4.5H24v9h12.7c-.6 3-2.3 5.5-4.8 7.2l7.7 6c4.5-4.2 7.1-10.4 7.1-17.7z"/><path fill="#FBBC05" d="M10.5 28.6A14.5 14.5 0 0 1 9.7 24c0-1.6.3-3.2.8-4.6l-7.9-6.2A24 24 0 0 0 0 24c0 3.9.9 7.5 2.6 10.8l7.9-6.2z"/><path fill="#34A853" d="M24 48c6.5 0 11.9-2.1 15.9-5.8l-7.7-6c-2.1 1.4-4.9 2.3-8.2 2.3-6.3 0-11.6-4.2-13.5-9.9l-7.9 6.2C6.5 42.6 14.6 48 24 48z"/></svg>`;
 
-async function home(el) {
-  if (!state.user) {
-    el.innerHTML = `
-      <section class="hero">
-        <div class="eyebrow">${esc(CONFIG.unitName)} · ${esc(CONFIG.schoolName)}</div>
-        <h1>จองห้อง ขอใช้บริการ<br>ครบ จบในที่เดียว</h1>
-        <p class="lead">จองห้องประชุม ขอบริการถ่ายภาพ วิดีโอ เครื่องเสียง และจอภาพ พร้อมติดตามสถานะได้ทุกขั้นตอน</p>
-        <div class="hero-actions"><button class="btn google lg" id="btn-in">${G_LOGO} เข้าสู่ระบบด้วย Google</button></div>
-      </section>
-      <section class="band"><div class="wrap" style="padding-top:56px;padding-bottom:64px">
-        <div class="tiles">
-          <div class="tile"><span class="ico">🗓️</span><h3>จองง่าย เห็นคิวว่างทันที</h3><p>ดูปฏิทินการใช้ห้องทั้งเดือน เลือกห้อง วัน เวลา แล้วส่งคำขอได้ในไม่กี่ขั้นตอน</p></div>
-          <div class="tile"><span class="ico">🎥</span><h3>ขอบริการโสตฯ ในฟอร์มเดียว</h3><p>ระบุบริการและอุปกรณ์ที่ต้องการ ทั้งถ่ายภาพ วิดีโอ ถ่ายทอดสด เครื่องเสียง และจอ LED</p></div>
-          <div class="tile"><span class="ico">📊</span><h3>สถิติและรายงานอัตโนมัติ</h3><p>สรุปการใช้บริการรายสัปดาห์ รายเดือน รายปีงบประมาณ และส่งออกเป็นไฟล์ Word ได้ทันที</p></div>
-        </div>
-      </div></section>`;
-    $("#btn-in", el).onclick = () => store.signIn().catch(fail);
-    return;
-  }
-  const t = today();
-  const [rooms, todays] = await Promise.all([getRooms(), store.query("bookings", { range: ["date", t, t] })]);
-  const todayOk = todays.filter((b) => b.status === "approved").sort((a, b) => a.start.localeCompare(b.start));
+// ช่องข้อมูลเพิ่มเติมตามประเภทผู้ใช้ (ใช้ทั้งหน้าสมัคร โปรไฟล์ และพนักงานโสตสร้างบัญชี)
+function typeFields(p = {}) {
+  return `<div class="full type-extra" data-for="student" ${p.type === "student" ? "" : "hidden"}><div class="form" style="gap:12px 18px">
+      <label class="f"><span>ชั้น / ห้อง *</span><input class="inp" name="classroom" maxlength="20" placeholder="เช่น ม.4/2" value="${esc(p.classroom || "")}"></label>
+      <label class="f"><span>เลขที่</span><input class="inp" name="studentNo" maxlength="5" inputmode="numeric" value="${esc(p.studentNo || "")}"></label></div></div>
+    <label class="f full type-extra" data-for="teacher" ${p.type === "teacher" ? "" : "hidden"}><span>หน่วยงาน / กลุ่มสาระ *</span>
+      <select class="inp" name="department">${opts(DEPARTMENTS, p.department, "เลือกหน่วยงาน")}</select></label>`;
+}
+function wireTypeFields(form) {
+  const sync = () => {
+    const t = form.querySelector("input[name=type]:checked")?.value || "";
+    $$(".type-extra", form).forEach((x) => (x.hidden = x.dataset.for !== t));
+    const cls = form.elements.classroom, dep = form.elements.department;
+    if (cls) cls.required = t === "student";
+    if (dep) dep.required = t === "teacher";
+  };
+  $$("input[name=type]", form).forEach((r) => (r.onchange = sync));
+  sync();
+}
+const readProfile = (form) => {
+  const v = Object.fromEntries(new FormData(form));
+  const t = v.type;
+  return {
+    name: (v.name || "").trim(), type: t, phone: (v.phone || "").trim(),
+    classroom: t === "student" ? (v.classroom || "").trim() : "", studentNo: t === "student" ? (v.studentNo || "").trim() : "",
+    department: t === "teacher" ? v.department || "" : "",
+  };
+};
+
+function inAppNote() {
+  const app = inAppBrowser();
+  if (!app) return "";
+  return `<div class="note warn inapp"><b>คุณกำลังเปิดเว็บนี้ในเบราว์เซอร์ของ ${esc(app)}</b><br>
+    การเข้าสู่ระบบด้วย Google ใช้ในแอปนี้ไม่ได้ ให้ใช้ <b>ชื่อผู้ใช้และรหัสผ่าน</b> หรือเปิดเว็บใน Safari / Chrome
+    <div style="margin-top:8px"><button class="btn sm" type="button" data-copy>คัดลอกลิงก์ไปเปิดใน Safari</button></div></div>`;
+}
+
+function login(el) {
+  const inApp = !!inAppBrowser();
   el.innerHTML = `
-    <div class="wrap"><div class="page-head head-row">
-      <div><h1>สวัสดี ${esc((state.user.name || "").split(" ")[0])}</h1><p>${thDateLong(t)}</p></div>
-      <a class="btn lg" href="#/book">จองห้อง / ขอใช้บริการ</a>
-    </div></div>
-    <section class="band"><div class="wrap" style="padding-top:28px;padding-bottom:56px">
-      <div class="kpis">
-        <div class="kpi"><div class="k">การใช้ห้องวันนี้</div><div class="v">${todayOk.length}<small>รายการ</small></div></div>
-        <div class="kpi"><div class="k">ห้องที่เปิดให้จอง</div><div class="v">${rooms.filter((r) => r.active !== false).length}<small>ห้อง</small></div></div>
-        ${isStaff() ? `<div class="kpi"><div class="k">คำขอรอตรวจสอบ</div><div class="v">${state.pending}<small>รายการ</small></div><div class="n"><a href="#/requests">ตรวจสอบคำขอ ›</a></div></div>` : ""}
+    <section class="hero hero-login">
+      <div class="eyebrow">${esc(CONFIG.unitName)} · ${esc(CONFIG.schoolName)}</div>
+      <h1>ยืม-คืนอุปกรณ์โสตฯ<br>ครบ จบในที่เดียว</h1>
+      <p class="lead">ดูว่าอุปกรณ์ไหนว่าง ส่งคำขอยืม และติดตามสถานะได้ทุกขั้นตอน ทั้งครูและนักเรียน</p>
+      <div class="auth-card">
+        ${inAppNote()}
+        ${state.authMsg ? `<p class="note err">${esc(state.authMsg)}</p>` : ""}
+        <div class="seg auth-tabs"><button data-tab="in" class="on">เข้าสู่ระบบ</button><button data-tab="up">สมัครสมาชิก</button></div>
+        <div data-pane="in">
+          <button class="btn google lg full-w" id="btn-google"${inApp ? " disabled" : ""}>${G_LOGO} เข้าสู่ระบบด้วย Google</button>
+          <div class="or"><span>หรือใช้ชื่อผู้ใช้</span></div>
+          <form id="f-in" class="form" novalidate style="grid-template-columns:1fr">
+            <label class="f"><span>ชื่อผู้ใช้</span><input class="inp" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" required></label>
+            <label class="f"><span>รหัสผ่าน</span><input class="inp" name="password" type="password" autocomplete="current-password" required></label>
+            <button class="btn lg" type="submit">เข้าสู่ระบบ</button>
+            <p class="hint">ลืมรหัสผ่าน กรุณาติดต่อพนักงานโสต</p>
+          </form>
+        </div>
+        <div data-pane="up" hidden>
+          <form id="f-up" class="form" novalidate>
+            <label class="f full"><span>ชื่อ-นามสกุล *</span><input class="inp" name="name" required maxlength="80" autocomplete="name"></label>
+            <fieldset class="full"><legend>ฉันเป็น *</legend>${typeChips("type", "")}</fieldset>
+            ${typeFields({})}
+            <label class="f full"><span>ชื่อผู้ใช้ * <small>(a–z, 0–9, จุด, ขีด ยาว 3–30 ตัว)</small></span><input class="inp" name="username" required autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="30"></label>
+            <label class="f"><span>รหัสผ่าน * <small>(อย่างน้อย 6 ตัว)</small></span><input class="inp" name="password" type="password" required minlength="6" autocomplete="new-password"></label>
+            <label class="f"><span>ยืนยันรหัสผ่าน *</span><input class="inp" name="confirm" type="password" required minlength="6" autocomplete="new-password"></label>
+            <button class="btn lg full" type="submit">สมัครสมาชิก</button>
+            <p class="hint full">มีบัญชี Google อยู่แล้ว ใช้ปุ่ม "เข้าสู่ระบบด้วย Google" ได้เลยโดยไม่ต้องสมัคร</p>
+          </form>
+        </div>
       </div>
-      <div class="card" id="cal-card"></div>
+    </section>
+    <section class="band"><div class="wrap" style="padding-top:56px;padding-bottom:64px">
+      <div class="tiles">
+        <div class="tile"><span class="ico">📦</span><h3>เห็นสถานะอุปกรณ์ทันที</h3><p>รู้ว่ากล้อง โน้ตบุ๊ก Apple TV หรือสาย HDMI ชิ้นไหนว่าง ถูกยืม หรือกำลังรออนุมัติ</p></div>
+        <div class="tile"><span class="ico">📝</span><h3>ขอยืมได้ในไม่กี่ขั้นตอน</h3><p>เลือกอุปกรณ์ วันยืม วันคืน แล้วส่งคำขอ พนักงานโสตอนุมัติและแจ้งผลในระบบ</p></div>
+        <div class="tile"><span class="ico">📊</span><h3>สถิติและรายงานอัตโนมัติ</h3><p>สรุปการยืมแยกครูและนักเรียน รายสัปดาห์ รายเดือน รายปีงบประมาณ ส่งออกเป็น Word ได้ทันที</p></div>
+      </div>
     </div></section>`;
-  await calSync().catch((e) => console.warn(e));
-  await mountCalendar($("#cal-card", el));
-}
-
-async function mountCalendar(host) {
-  const cur = new Date();
-  cur.setDate(1);
-  let mode = "month", day = today();
-  try { mode = localStorage.getItem("sode-cal-mode") === "day" ? "day" : "month"; } catch {}
-  const DOW = ["อา.", "จ.", "อ.", "พ.", "พฤ.", "ศ.", "ส."];
-  const HOUR_PX = 56;
-
-  async function load(from, to) {
-    const [bk, ext] = await Promise.all([
-      store.query("bookings", { range: ["date", from, to] }),
-      store.query("calendarEvents", { range: ["date", from, to] }).catch(() => []),
-    ]);
-    const rows = bk.filter((b) => b.status === "approved" || b.status === "pending")
-      .concat(ext.map((e) => ({ ...e, status: "gcal", roomName: e.location || "ไม่ระบุสถานที่", department: "Google Calendar" })));
-    rows.sort((p, q) => p.start.localeCompare(q.start));
-    return { rows, hasExt: ext.length > 0 };
-  }
-  const head = (title) => `<div class="cal-head"><h2>${title}</h2>
-    <div class="cal-nav"><div class="seg"><button data-mode="month" class="${mode === "month" ? "on" : ""}">เดือน</button><button data-mode="day" class="${mode === "day" ? "on" : ""}">วัน</button></div>
-      <button class="btn ghost sm" data-today>วันนี้</button><button class="icon-btn" data-prev aria-label="ก่อนหน้า">‹</button><button class="icon-btn" data-next aria-label="ถัดไป">›</button></div></div>`;
-  const legend = (hasExt, hint) => `<div class="legend"><span><i style="background:#e8f1fc;border:1px solid #b9d5f5"></i>อนุมัติแล้ว</span><span><i style="background:var(--amber-bg);border:1px solid #ecd79a"></i>รอตรวจสอบ</span>${hasExt ? `<span><i style="background:#efeaf8;border:1px solid #d3c7ee"></i>จาก Google Calendar</span>` : ""}<span>${hint}</span></div>`;
-  const draw = () => (mode === "day" ? drawDay() : drawMonth());
-  const redraw = () => draw().catch(fail);
-  function setMode(m) { mode = m; try { localStorage.setItem("sode-cal-mode", m); } catch {} }
-  function wire() {
-    $$("[data-mode]", host).forEach((b) => (b.onclick = () => { if (b.dataset.mode !== mode) { setMode(b.dataset.mode); redraw(); } }));
-    const step = (n) => { if (mode === "day") day = addDays(day, n); else cur.setMonth(cur.getMonth() + n); redraw(); };
-    $("[data-prev]", host).onclick = () => step(-1);
-    $("[data-next]", host).onclick = () => step(1);
-    $("[data-today]", host).onclick = () => { const n = new Date(); cur.setFullYear(n.getFullYear(), n.getMonth(), 1); day = today(); redraw(); };
-  }
-
-  // ----- มุมมองเดือน -----
-  async function drawMonth() {
-    const y = cur.getFullYear(), m = cur.getMonth();
-    const first = new Date(y, m, 1);
-    const from = ymd(new Date(y, m, 1 - first.getDay()));
-    const cells = Math.ceil((first.getDay() + new Date(y, m + 1, 0).getDate()) / 7) * 7;
-    const { rows, hasExt } = await load(from, addDays(from, cells - 1));
-    const by = {};
-    rows.forEach((b) => (by[b.date] ||= []).push(b));
-    const t = today();
-    let html = head(first.toLocaleDateString("th-TH", { month: "long", year: "numeric" })) + `<div class="cal">${DOW.map((d) => `<div class="dow">${d}</div>`).join("")}`;
-    for (let i = 0; i < cells; i++) {
-      const d = addDays(from, i), list = by[d] || [], inMonth = parseYmd(d).getMonth() === m;
-      html += `<button class="day${inMonth ? "" : " out"}${d === t ? " today" : ""}" data-d="${d}" aria-label="${thDate(d)} ${list.length} รายการ">
-        <span class="dn">${parseYmd(d).getDate()}</span>
-        ${list.slice(0, 3).map((b) => `<span class="ev ${b.status}">${b.allDay ? "" : b.start + " "}${esc(b.title)}</span>`).join("")}
-        ${list.length > 3 ? `<span class="ev-more">อีก ${list.length - 3} รายการ</span>` : ""}</button>`;
-    }
-    host.innerHTML = html + `</div>` + legend(hasExt, "แตะที่วันเพื่อดูตารางรายชั่วโมง");
-    wire();
-    $$(".day", host).forEach((b) => (b.onclick = () => { day = b.dataset.d; setMode("day"); redraw(); }));
-  }
-
-  // ----- มุมมองวัน: แสดงกิจกรรมเป็นรายชั่วโมง -----
-  async function drawDay() {
-    const { rows, hasExt } = await load(day, day);
-    const allDay = rows.filter((b) => b.allDay), timed = rows.filter((b) => !b.allDay);
-    const h0 = Math.min(7, ...timed.map((b) => Math.floor(toMin(b.start) / 60)));
-    const h1 = Math.max(18, ...timed.map((b) => Math.ceil(toMin(b.end) / 60)));
-    // จัดกิจกรรมที่เวลาซ้อนกันให้อยู่คนละคอลัมน์
-    const colEnd = [];
-    const placed = timed.map((b) => {
-      const s = toMin(b.start), e = Math.max(toMin(b.end), s + 25);
-      let c = colEnd.findIndex((x) => x <= s);
-      if (c < 0) { c = colEnd.length; colEnd.push(e); } else colEnd[c] = e;
-      return { b, s, e, c };
-    });
-    const n = Math.max(1, colEnd.length);
-    const px = (min) => ((min - h0 * 60) / 60) * HOUR_PX;
-    const now = new Date(), nowMin = now.getHours() * 60 + now.getMinutes();
-    const hours = Array.from({ length: h1 - h0 + 1 }, (_, i) => h0 + i);
-    host.innerHTML = head(thDateLong(day)) + `
-      <div class="dayv">
-        ${allDay.length ? `<div class="dayv-all"><span class="dayv-lb">ทั้งวัน</span><div>${allDay.map((b) => `<button class="ev ${b.status}" data-i="${rows.indexOf(b)}">${esc(b.title)}</button>`).join("")}</div></div>` : ""}
-        <div class="dayv-grid" style="height:${(h1 - h0) * HOUR_PX}px">
-          ${hours.map((h) => `<div class="dayv-hour" style="top:${(h - h0) * HOUR_PX}px"><span>${pad(h)}:00</span></div>`).join("")}
-          ${day === today() && nowMin >= h0 * 60 && nowMin <= h1 * 60 ? `<div class="dayv-now" style="top:${px(nowMin)}px" title="เวลาปัจจุบัน"></div>` : ""}
-          <div class="dayv-events">${placed.map((p) => `<button class="dayv-ev ${p.b.status}" data-i="${rows.indexOf(p.b)}"
-            style="top:${px(p.s)}px;height:${Math.max(24, px(p.e) - px(p.s) - 2)}px;left:calc(${(p.c / n) * 100}% + 2px);width:calc(${100 / n}% - 4px)"
-            aria-label="${p.b.start} ถึง ${p.b.end} ${esc(p.b.title)} ${esc(p.b.roomName)}"><div><b>${p.b.start}–${p.b.end}</b> ${esc(p.b.title)}</div><span>${esc(p.b.roomName)}</span></button>`).join("")}</div>
-        </div>
-      </div>
-      <div class="dayv-foot"><span class="clip">${rows.length ? `${rows.length} กิจกรรม` : "ไม่มีกิจกรรมในวันนี้"}</span>${day >= today() || isStaff() ? `<a class="btn sm" href="#/book?date=${day}">จองวันนี้</a>` : ""}</div>`
-      + legend(hasExt, "แตะที่กิจกรรมเพื่อดูรายละเอียด");
-    wire();
-    $$("[data-i]", host).forEach((el) => (el.onclick = () => {
-      const b = rows[+el.dataset.i];
-      if (b.status === "gcal") dayModal(day, [b]); else showBooking(b, redraw);
-    }));
-  }
-
-  await draw();
-}
-
-function dayModal(d, list) {
-  const m = openModal(thDateLong(d), list.length
-    ? `<div class="list">${list.map((b) => `<div class="file" style="align-items:flex-start;padding:12px 14px"><div style="min-width:92px;font-variant-numeric:tabular-nums">${b.allDay ? "ทั้งวัน" : `${b.start}–${b.end}`}</div>
-        <div style="flex:1"><b>${esc(b.title)}</b><div class="muted" style="color:var(--ink-2);font-size:13px">${esc(b.roomName)} · ${esc(b.department)}</div></div>${stBadge(b.status)}</div>`).join("")}</div>`
-    : `<p class="empty" style="padding:24px 0">ยังไม่มีการจองในวันนี้</p>`);
-  if (d >= today() || isStaff()) {
-    $(".modal-body", m.el).insertAdjacentHTML("beforeend", `<div class="form-actions" style="margin-top:18px"><a class="btn" href="#/book?date=${d}">จองวันนี้</a></div>`);
-    $(".modal-body a.btn", m.el).onclick = () => m.close();
-  }
+  state.authMsg = "";
+  const copy = $("[data-copy]", el);
+  if (copy) copy.onclick = async () => {
+    const url = location.origin + location.pathname;
+    try { await navigator.clipboard.writeText(url); toast("คัดลอกลิงก์แล้ว นำไปวางใน Safari หรือ Chrome"); }
+    catch { prompt("คัดลอกลิงก์นี้ไปเปิดใน Safari หรือ Chrome", url); }
+  };
+  $$("[data-tab]", el).forEach((b) => (b.onclick = () => {
+    $$("[data-tab]", el).forEach((x) => x.classList.toggle("on", x === b));
+    $$("[data-pane]", el).forEach((p) => (p.hidden = p.dataset.pane !== b.dataset.tab));
+  }));
+  $("#btn-google", el).onclick = () => store.signIn().catch(fail);
+  const fi = $("#f-in", el);
+  fi.onsubmit = async (e) => {
+    e.preventDefault();
+    if (!fi.reportValidity()) return;
+    const btn = $("button[type=submit]", fi); btn.disabled = true;
+    try { await store.signInUsername(fi.elements.username.value.trim().toLowerCase(), fi.elements.password.value); }
+    catch (err) { btn.disabled = false; fail(err); }
+  };
+  const fu = $("#f-up", el);
+  wireTypeFields(fu);
+  fu.onsubmit = async (e) => {
+    e.preventDefault();
+    if (!fu.reportValidity()) return;
+    const username = fu.elements.username.value.trim().toLowerCase();
+    if (!USERNAME_RE.test(username)) return toast("ชื่อผู้ใช้ใช้ได้เฉพาะ a–z, 0–9, จุด และขีด ยาว 3–30 ตัว", true);
+    if (fu.elements.password.value !== fu.elements.confirm.value) return toast("รหัสผ่านทั้งสองช่องไม่ตรงกัน", true);
+    const btn = $("button[type=submit]", fu); btn.disabled = true;
+    try { await store.register({ username, password: fu.elements.password.value, profile: readProfile(fu) }); toast("สมัครสมาชิกสำเร็จ"); }
+    catch (err) { btn.disabled = false; fail(err); }
+  };
 }
 
 // ============================================================
-//  จองห้อง / ขอใช้บริการ
+//  ข้อมูลของฉัน (และกรอกข้อมูลครั้งแรก)
 // ============================================================
-async function book(el, params) {
-  const rooms = (await getRooms()).filter((r) => r.active !== false);
-  const u = state.user;
-  el.innerHTML = `
-    <div class="wrap narrow"><div class="page-head"><h1>จองห้อง / ขอใช้บริการ</h1><p>กรอกรายละเอียดให้ครบถ้วน ${isStaff() ? "รายการที่พนักงานโสตบันทึกจะได้รับการอนุมัติทันที" : "พนักงานโสตจะตรวจสอบและแจ้งผลในหน้า “รายการของฉัน”"}</p></div>
+async function profile(el) {
+  const u = state.user, first = !u.type;
+  el.innerHTML = `<div class="wrap narrow"><div class="page-head"><h1>${first ? "กรอกข้อมูลก่อนเริ่มใช้งาน" : "ข้อมูลของฉัน"}</h1>
+      <p>${first ? "ข้อมูลนี้ใช้แสดงในคำขอยืมและสถิติ แยกครูกับนักเรียน" : "แก้ไขข้อมูลที่ใช้ในการยืมอุปกรณ์"}</p></div>
     <div class="section">
-    ${rooms.length ? "" : `<p class="note warn">ยังไม่มีห้องในระบบ ${isStaff() ? `<a href="#/settings">ไปที่ตั้งค่าเพื่อเพิ่มห้อง</a>` : "กรุณาติดต่อพนักงานโสต"}</p>`}
-    <form id="bk" class="form" novalidate>
-      <label class="f full"><span>หัวข้อ / ชื่องาน *</span><input class="inp" name="title" required maxlength="120" placeholder="เช่น ประชุมกลุ่มสาระฯ ครั้งที่ 3"></label>
-      <label class="f full"><span>สถานที่ขอรับบริการ *</span><select class="inp" name="roomId" required>
-        <option value="">เลือกห้อง</option>${rooms.map((r) => `<option value="${r.id}">${esc(r.name)}${r.capacity ? ` · ${r.capacity} ที่นั่ง` : ""}</option>`).join("")}</select></label>
-      <label class="f full"><span>วันที่ขอรับบริการ *</span><input class="inp" type="date" name="date" required value="${esc(params.get("date") || "")}" ${isStaff() ? "" : `min="${today()}"`}></label>
-      <label class="f"><span>เวลาเริ่ม *</span><input class="inp" type="time" name="start" required value="08:30"></label>
-      <label class="f"><span>เวลาสิ้นสุด *</span><input class="inp" type="time" name="end" required value="10:00"></label>
-      <div class="full" id="conflict"></div>
-      <label class="f"><span>หน่วยงานที่ขอใช้ *</span><select class="inp" name="department" required>${opts(DEPARTMENTS, "", "เลือกหน่วยงาน")}</select></label>
-      <label class="f"><span>ใช้สำหรับ *</span><select class="inp" name="purpose" required>${opts(PURPOSES, "", "เลือกลักษณะการใช้")}</select></label>
-      <fieldset class="full"><legend>ขอรับบริการ (เลือกได้หลายข้อ)</legend>${chips("services", SERVICES)}</fieldset>
-      <fieldset class="full"><legend>อุปกรณ์ที่ต้องการใช้ (เลือกได้หลายข้อ)</legend>${chips("equipment", EQUIPMENT)}</fieldset>
-      <label class="f"><span>ชื่อผู้ขอใช้ *</span><input class="inp" name="requester" required value="${esc(u.name)}"></label>
-      <label class="f"><span>โทรศัพท์ *</span><input class="inp" name="phone" required inputmode="tel" maxlength="20" placeholder="08x-xxx-xxxx"></label>
-      <label class="f"><span>จำนวนผู้เข้าร่วม (คน)</span><input class="inp" type="number" name="attendees" min="0" max="5000" inputmode="numeric"></label>
-      <label class="f full"><span>รายละเอียดเพิ่มเติม</span><textarea class="inp" name="note" rows="3" maxlength="600" placeholder="เช่น ต้องการไมค์ลอย 4 ตัว, ขอไฟล์ภาพหลังงาน"></textarea></label>
-      <div class="full form-actions"><a class="btn ghost" href="#/">ยกเลิก</a><button class="btn" type="submit">ส่งคำขอ</button></div>
-    </form></div></div>`;
-  const f = $("#bk", el), box = $("#conflict", el);
-  let clash = [];
-  async function check() {
-    const v = Object.fromEntries(new FormData(f));
-    box.innerHTML = ""; clash = [];
-    if (!v.roomId || !v.date || !v.start || !v.end) return;
-    if (toMin(v.end) <= toMin(v.start)) return (box.innerHTML = `<p class="note err">เวลาสิ้นสุดต้องอยู่หลังเวลาเริ่ม</p>`);
-    const same = await store.query("bookings", { range: ["date", v.date, v.date] });
-    clash = same.filter((b) => (b.status === "approved" || b.status === "pending") && overlaps(b, v));
-    box.innerHTML = clash.length
-      ? `<p class="note warn"><b>ช่วงเวลานี้มีการจองแล้ว</b><br>${clash.map((b) => `${b.start}–${b.end} ${esc(b.title)} (${STATUS[b.status].label})`).join("<br>")}</p>`
-      : `<p class="note good">ห้องว่างในช่วงเวลานี้</p>`;
-  }
-  ["roomId", "date", "start", "end"].forEach((n) => f.elements[n].addEventListener("change", () => check().catch(fail)));
-  if (params.get("date")) check().catch(() => {});
+      <form id="pf" class="form" novalidate>
+        <label class="f full"><span>ชื่อ-นามสกุล *</span><input class="inp" name="name" required maxlength="80" value="${esc(u.name)}"></label>
+        <fieldset class="full"><legend>ประเภทผู้ใช้ *</legend>${typeChips("type", u.type)}</fieldset>
+        ${typeFields(u)}
+        <label class="f"><span>เบอร์โทรศัพท์</span><input class="inp" name="phone" inputmode="tel" maxlength="20" value="${esc(u.phone)}"></label>
+        <label class="f"><span>บัญชี</span><input class="inp" disabled value="${esc(u.username ? "ชื่อผู้ใช้: " + u.username : u.email)}"></label>
+        <div class="full form-actions">${first ? "" : `<a class="btn ghost" href="#/">ยกเลิก</a>`}<button class="btn" type="submit">${first ? "เริ่มใช้งาน" : "บันทึก"}</button></div>
+      </form>
+      ${u.username && !isDemo ? `<h2 style="font-size:19px;margin:40px 0 12px">เปลี่ยนรหัสผ่าน</h2>
+      <form id="pw" class="form" novalidate>
+        <label class="f full"><span>รหัสผ่านปัจจุบัน</span><input class="inp" name="cur" type="password" required autocomplete="current-password"></label>
+        <label class="f"><span>รหัสผ่านใหม่ (อย่างน้อย 6 ตัว)</span><input class="inp" name="next" type="password" required minlength="6" autocomplete="new-password"></label>
+        <label class="f"><span>ยืนยันรหัสผ่านใหม่</span><input class="inp" name="confirm" type="password" required minlength="6" autocomplete="new-password"></label>
+        <div class="full form-actions"><button class="btn ghost" type="submit">เปลี่ยนรหัสผ่าน</button></div>
+      </form>` : ""}
+    </div></div>`;
+  const f = $("#pf", el);
+  wireTypeFields(f);
   f.onsubmit = async (e) => {
     e.preventDefault();
     if (!f.reportValidity()) return;
-    const fd = new FormData(f), v = Object.fromEntries(fd);
-    if (toMin(v.end) <= toMin(v.start)) return toast("เวลาสิ้นสุดต้องอยู่หลังเวลาเริ่ม", true);
+    const p = readProfile(f);
+    if (!p.type) return toast("กรุณาเลือกประเภทผู้ใช้", true);
+    try {
+      await store.update("users", u.uid, p);
+      Object.assign(state.user, p);
+      toast("บันทึกข้อมูลแล้ว");
+      location.hash = "#/";
+      if (first) render();
+    } catch (err) { fail(err); }
+  };
+  const pw = $("#pw", el);
+  if (pw) pw.onsubmit = async (e) => {
+    e.preventDefault();
+    if (!pw.reportValidity()) return;
+    if (pw.elements.next.value !== pw.elements.confirm.value) return toast("รหัสผ่านใหม่ทั้งสองช่องไม่ตรงกัน", true);
+    try { await store.changePassword(pw.elements.cur.value, pw.elements.next.value); pw.reset(); toast("เปลี่ยนรหัสผ่านแล้ว"); } catch (err) { fail(err); }
+  };
+}
+
+// ============================================================
+//  หน้าหลัก: ปฏิทินสถานะการยืม + อุปกรณ์ที่ถูกยืมอยู่
+// ============================================================
+const homeState = { month: today().slice(0, 7), sel: today() };
+async function home(el) {
+  if (!state.user) return login(el);
+  const t = today();
+  const [itemsList, active] = await Promise.all([getItems(), activeLoans()]);
+  const sts = itemsList.map((it) => itemStatus(it, active, t));
+  const sum = (k) => sts.reduce((s, x) => s + x[k], 0);
+  const broken = sts.filter((x) => x.broken).reduce((s, x) => s + x.qty, 0);
+  const pending = active.filter((l) => l.status === "pending");
+  const overdue = active.filter((l) => isOverdue(l, t));
+  const outNow = active.filter((l) => l.status === "approved" && l.borrowDate <= t).sort((a, b) => a.dueDate.localeCompare(b.dueDate));
+  el.innerHTML = `
+    <div class="wrap"><div class="page-head head-row">
+      <div><h1>สวัสดี ${esc((state.user.name || "").split(" ")[0])}</h1><p>${thDateLong(t)}</p></div>
+      <div class="head-acts"><a class="btn ghost" href="#/items">ดูสถานะอุปกรณ์</a><a class="btn" href="#/borrow">ยืมอุปกรณ์</a></div>
+    </div></div>
+    <section class="band"><div class="wrap" style="padding-top:28px;padding-bottom:56px">
+      <div class="kpis">
+        <div class="kpi"><div class="k">อุปกรณ์ทั้งหมด</div><div class="v">${num(sum("qty"))}<small>ชิ้น</small></div><div class="n">${itemsList.length} รายการ${broken ? ` · ชำรุด/ซ่อม ${broken}` : ""}</div></div>
+        <div class="kpi"><div class="k">ว่างพร้อมยืม</div><div class="v">${num(sum("free"))}<small>ชิ้น</small></div></div>
+        <div class="kpi"><div class="k">ถูกยืมอยู่</div><div class="v">${num(sum("out"))}<small>ชิ้น</small></div></div>
+        <div class="kpi"><div class="k">กำลังขออนุญาต</div><div class="v">${pending.length}<small>คำขอ</small></div>${isStaff() && pending.length ? `<div class="n"><a href="#/requests">ตรวจสอบคำขอ ›</a></div>` : ""}</div>
+        <div class="kpi${overdue.length ? " kpi-alert" : ""}"><div class="k">เกินกำหนดคืน</div><div class="v">${overdue.length}<small>รายการ</small></div></div>
+      </div>
+      <div class="home-grid">
+        <div class="card" id="cal-card"></div>
+        <div class="card" id="day-card"></div>
+      </div>
+      <div class="card" style="margin-top:16px"><h2>อุปกรณ์ที่ถูกยืมอยู่ขณะนี้</h2><p class="sub">${outNow.length ? `${outNow.length} รายการ เรียงตามกำหนดคืน` : "ไม่มีอุปกรณ์ที่ถูกยืมอยู่"}</p>
+        ${outNow.length ? loanTable(outNow, { showStatus: true }) : ""}</div>
+    </div></section>`;
+  wireLoanTable(el, outNow, () => render());
+  await mountCalendar($("#cal-card", el), $("#day-card", el), active);
+}
+
+function loanTable(rows, { showStatus = true, actions = false } = {}) {
+  return `<div class="table-wrap flat"><table class="t"><thead><tr><th>อุปกรณ์</th><th>ผู้ยืม</th><th>วันยืม – กำหนดคืน</th>${showStatus ? "<th>สถานะ</th>" : ""}${actions ? "<th></th>" : ""}</tr></thead><tbody>
+    ${rows.map((l) => `<tr data-loan="${l.id}" class="${isOverdue(l) ? "row-alert" : ""}"><td><b>${esc(itemsText(l))}</b><div class="muted">${esc(l.purpose || "")}</div></td>
+      <td>${who(l)}</td><td style="white-space:nowrap">${dateRange(l)}${isOverdue(l) ? `<div class="muted" style="color:var(--red)">เกิน ${daysBetween(l.dueDate, today())} วัน</div>` : ""}</td>
+      ${showStatus ? `<td>${stBadge(l)}</td>` : ""}${actions ? `<td><div class="acts">${loanActions(l)}</div></td>` : ""}</tr>`).join("")}
+    </tbody></table></div>`;
+}
+function wireLoanTable(host, rows, onChange) {
+  $$("tr[data-loan]", host).forEach((tr) => {
+    const l = rows.find((x) => x.id === tr.dataset.loan);
+    tr.onclick = (e) => { if (!e.target.closest("button")) showLoan(l, onChange); };
+    $$("[data-act]", tr).forEach((b) => (b.onclick = async () => { if (await loanAction(l, b.dataset.act)) onChange(); }));
+  });
+}
+
+async function mountCalendar(host, dayHost, active) {
+  const DOW = ["อา.", "จ.", "อ.", "พ.", "พฤ.", "ศ.", "ส."];
+  let loans = [];
+  async function draw() {
+    const [y, m] = homeState.month.split("-").map(Number);
+    const first = new Date(y, m - 1, 1);
+    const from = ymd(new Date(y, m - 1, 1 - first.getDay()));
+    const cells = Math.ceil((first.getDay() + new Date(y, m, 0).getDate()) / 7) * 7;
+    const to = addDays(from, cells - 1);
+    const ranged = await store.query("loans", { range: ["borrowDate", addDays(from, -60), to] });
+    const map = new Map(ranged.map((l) => [l.id, l]));
+    active.forEach((l) => map.set(l.id, l));
+    loans = [...map.values()].filter((l) => l.status !== "rejected" && l.status !== "cancelled");
+    const t = today();
+    let html = `<div class="cal-head"><h2>${first.toLocaleDateString("th-TH", { month: "long", year: "numeric" })}</h2>
+      <div class="cal-nav"><button class="btn ghost sm" data-today>วันนี้</button><button class="icon-btn" data-prev aria-label="เดือนก่อนหน้า">‹</button><button class="icon-btn" data-next aria-label="เดือนถัดไป">›</button></div></div>
+      <div class="cal">${DOW.map((d) => `<div class="dow">${d}</div>`).join("")}`;
+    for (let i = 0; i < cells; i++) {
+      const d = addDays(from, i), list = loans.filter((l) => loanOn(l, d, t)), inMonth = parseYmd(d).getMonth() === m - 1;
+      html += `<button class="day${inMonth ? "" : " out"}${d === t ? " today" : ""}${d === homeState.sel ? " sel" : ""}" data-d="${d}" aria-label="${thDate(d)} มีการยืม ${list.length} รายการ">
+        <span class="dn">${parseYmd(d).getDate()}</span>
+        ${list.slice(0, 2).map((l) => `<span class="ev ${loanState(l)}">${esc(itemsText(l))}</span>`).join("")}
+        ${list.length > 2 ? `<span class="ev-more">อีก ${list.length - 2} รายการ</span>` : ""}</button>`;
+    }
+    html += `</div><div class="legend"><span><i class="lg approved"></i>กำลังยืม</span><span><i class="lg pending"></i>รออนุมัติ</span><span><i class="lg overdue"></i>เกินกำหนด</span><span><i class="lg returned"></i>คืนแล้ว</span></div>`;
+    host.innerHTML = html;
+    const step = (n) => { const d = new Date(y, m - 1 + n, 1); homeState.month = ymd(d).slice(0, 7); draw().catch(fail); };
+    $("[data-prev]", host).onclick = () => step(-1);
+    $("[data-next]", host).onclick = () => step(1);
+    $("[data-today]", host).onclick = () => { homeState.month = t.slice(0, 7); homeState.sel = t; draw().catch(fail); };
+    $$(".day", host).forEach((b) => (b.onclick = () => {
+      homeState.sel = b.dataset.d;
+      $$(".day", host).forEach((x) => x.classList.toggle("sel", x === b));
+      drawDay();
+    }));
+    drawDay();
+  }
+  function drawDay() {
+    const d = homeState.sel, t = today();
+    const list = loans.filter((l) => loanOn(l, d, t)).sort((a, b) => (a.status === "pending") - (b.status === "pending") || a.dueDate.localeCompare(b.dueDate));
+    const units = list.filter((l) => l.status !== "pending").reduce((s, l) => s + loanUnits(l), 0);
+    dayHost.innerHTML = `<div class="cal-head"><div><h2>สถานะการยืม</h2><p class="sub" style="margin:2px 0 0">${thDateLong(d)}</p></div>
+        <input class="inp sm" type="date" value="${d}" aria-label="เลือกวันที่" id="day-pick"></div>
+      ${list.length ? `<p class="clip" style="margin:0 0 10px">ถูกยืม ${units} ชิ้น · ${list.length} รายการ</p><div class="day-list">${list.map((l) => `
+        <button class="day-item" data-loan="${l.id}"><span class="di-ico">${catIcon(l.items?.[0]?.category)}</span>
+          <span class="di-body"><b>${esc(itemsText(l))}</b><span>${esc(l.borrowerName)} · ${shortType(l.borrowerType)}${l.classroom ? " " + esc(l.classroom) : ""}</span>
+          <span>${dateRange(l)}</span></span>${stBadge(l)}</button>`).join("")}</div>`
+        : `<div class="empty" style="padding:36px 8px">ไม่มีการยืมอุปกรณ์ในวันนี้</div>`}
+      <div class="form-actions" style="margin-top:14px"><a class="btn sm" href="#/borrow?date=${d >= t ? d : t}">ยืมอุปกรณ์</a></div>`;
+    $$("[data-loan]", dayHost).forEach((b) => (b.onclick = () => showLoan(list.find((l) => l.id === b.dataset.loan), () => render())));
+    $("#day-pick", dayHost).onchange = (e) => {
+      if (!e.target.value) return;
+      homeState.sel = e.target.value;
+      if (homeState.sel.slice(0, 7) !== homeState.month) { homeState.month = homeState.sel.slice(0, 7); draw().catch(fail); }
+      else { $$(".day", host).forEach((x) => x.classList.toggle("sel", x.dataset.d === homeState.sel)); drawDay(); }
+    };
+  }
+  await draw();
+}
+
+// ============================================================
+//  สถานะอุปกรณ์ (แยกหมวดหมู่) + จัดการอุปกรณ์ (พนักงานโสต)
+// ============================================================
+const itemState = { q: "", cat: "", st: "" };
+async function items(el) {
+  el.innerHTML = `<div class="wrap"><div class="page-head head-row"><div><h1>สถานะอุปกรณ์</h1><p>ดูว่าอุปกรณ์ไหนว่าง ถูกยืม หรือกำลังรออนุมัติ แยกตามหมวดหมู่</p></div>
+      ${isStaff() ? `<button class="btn" id="it-add">เพิ่มอุปกรณ์</button>` : `<a class="btn" href="#/borrow">ยืมอุปกรณ์</a>`}</div></div>
+    <section class="band"><div class="wrap" style="padding-top:24px;padding-bottom:56px"><div id="it"></div></div></section>`;
+  const host = $("#it", el);
+  if (isStaff()) $("#it-add", el).onclick = () => itemForm(null, () => draw().catch(fail));
+  async function draw() {
+    const [list, active] = await Promise.all([getItems(true), activeLoans()]);
+    const t = today();
+    const rows = list.map((it) => ({ it, s: itemStatus(it, active, t) }));
+    const cats = [...new Set([...CATEGORIES.map((c) => c.name), ...list.map((x) => x.category)])].filter((c) => list.some((x) => x.category === c));
+    const count = (k) => rows.filter((r) => (k === "pend" ? r.s.pend > 0 : r.s.key === k || (k === "out" && r.s.key === "partial"))).length;
+    const FILTERS = [["", "ทั้งหมด", rows.length], ["free", "ว่าง", count("free")], ["out", "ถูกยืม", count("out")], ["pend", "รออนุมัติ", count("pend")], ["broken", "ชำรุด/ซ่อม", count("broken")]];
+    host.innerHTML = list.length ? `
+      <div class="toolbar">
+        <input class="inp sm" type="search" id="it-q" placeholder="ค้นหาชื่อหรือรหัสอุปกรณ์" value="${esc(itemState.q)}" style="width:min(260px,100%)" aria-label="ค้นหาอุปกรณ์">
+        <select class="inp sm" id="it-cat" aria-label="หมวดหมู่"><option value="">ทุกหมวดหมู่</option>${cats.map((c) => `<option${c === itemState.cat ? " selected" : ""}>${esc(c)}</option>`).join("")}</select>
+        <div class="seg">${FILTERS.map(([k, l, n]) => `<button data-st="${k}" class="${itemState.st === k ? "on" : ""}">${l} <small>${n}</small></button>`).join("")}</div>
+      </div>
+      <div id="it-groups"></div>`
+      : `<div class="empty"><p>ยังไม่มีอุปกรณ์ในระบบ</p>${isStaff() ? `<button class="btn ghost" id="it-seed">เพิ่มอุปกรณ์ตัวอย่าง ${DEFAULT_ITEMS.length} รายการ</button>` : ""}</div>`;
+    const seed = $("#it-seed", host);
+    if (seed) seed.onclick = async () => {
+      seed.disabled = true;
+      try { for (const x of DEFAULT_ITEMS) await store.add("items", { ...x, condition: "พร้อมใช้งาน", allowStudents: true, location: "", note: "", createdAt: Date.now() }); toast("เพิ่มอุปกรณ์ตัวอย่างแล้ว แก้ไขชื่อและจำนวนได้ภายหลัง"); draw().catch(fail); }
+      catch (e) { seed.disabled = false; fail(e); }
+    };
+    if (!list.length) return;
+    const groups = $("#it-groups", host);
+    const paint = () => {
+      const q = itemState.q.trim().toLowerCase();
+      const shown = rows.filter(({ it, s }) =>
+        (!q || `${it.name} ${it.code || ""} ${it.location || ""}`.toLowerCase().includes(q)) && (!itemState.cat || it.category === itemState.cat) &&
+        (!itemState.st || (itemState.st === "pend" ? s.pend > 0 : itemState.st === "out" ? s.key === "out" || s.key === "partial" : s.key === itemState.st)));
+      const byCat = new Map();
+      shown.forEach((r) => { const c = r.it.category || "อื่น ๆ"; if (!byCat.has(c)) byCat.set(c, []); byCat.get(c).push(r); });
+      groups.innerHTML = shown.length ? [...byCat.entries()].map(([c, rs]) => `
+        <section class="igroup"><h2><span>${catIcon(c)}</span>${esc(c)} <small>${rs.length} รายการ · ว่าง ${rs.reduce((s, r) => s + r.s.free, 0)}/${rs.reduce((s, r) => s + r.s.qty, 0)} ชิ้น</small></h2>
+          <div class="igrid">${rs.map(({ it, s }) => itemCard(it, s)).join("")}</div></section>`).join("")
+        : `<div class="empty">ไม่พบอุปกรณ์ที่ตรงกับเงื่อนไข</div>`;
+      $$(".icard", groups).forEach((card) => {
+        const r = rows.find((x) => x.it.id === card.dataset.id);
+        card.onclick = (e) => {
+          const b = e.target.closest("[data-a]");
+          if (!b) return itemDetail(r.it, r.s, () => draw().catch(fail));
+          if (b.dataset.a === "borrow") location.hash = `#/borrow?item=${r.it.id}`;
+          if (b.dataset.a === "edit") itemForm(r.it, () => draw().catch(fail));
+        };
+      });
+    };
+    $("#it-q", host).oninput = (e) => { itemState.q = e.target.value; paint(); };
+    $("#it-cat", host).onchange = (e) => { itemState.cat = e.target.value; paint(); };
+    $$("[data-st]", host).forEach((b) => (b.onclick = () => { itemState.st = b.dataset.st; $$("[data-st]", host).forEach((x) => x.classList.toggle("on", x === b)); paint(); }));
+    paint();
+  }
+  await draw();
+}
+const canBorrow = (it) => isStaff() || state.user.type !== "student" || it.allowStudents !== false;
+function itemCard(it, s) {
+  const pct = s.qty ? Math.round((s.free / s.qty) * 100) : 0;
+  const h = s.holders[0];
+  return `<div class="icard ${s.key}" data-id="${it.id}" tabindex="0" role="button" aria-label="${esc(it.name)} ${ITEM_STATUS[s.key].label}">
+    <div class="icard-top"><span class="icard-ico">${catIcon(it.category)}</span>${itemBadge(s)}</div>
+    <h3>${esc(it.name)}</h3>
+    <div class="muted">${[it.code, it.location].filter(Boolean).map(esc).join(" · ") || "&nbsp;"}</div>
+    <div class="meter" aria-hidden="true"><span style="width:${pct}%"></span></div>
+    <div class="icard-row"><span>ว่าง <b>${s.free}</b> / ${s.qty} ชิ้น</span>${s.pend ? `<span class="st st-pending">รออนุมัติ ${s.pend}</span>` : ""}</div>
+    ${h ? `<div class="icard-who">ยืมโดย ${esc(h.borrowerName)} · คืน ${thShort(h.dueDate)}${s.holders.length > 1 ? ` และอีก ${s.holders.length - 1}` : ""}</div>` : ""}
+    ${it.allowStudents === false ? `<div class="tags"><span class="tag">เฉพาะครู / บุคลากร</span></div>` : ""}
+    <div class="icard-acts">${!s.broken && canBorrow(it) ? `<button class="btn sm" data-a="borrow">ยืม</button>` : ""}${isStaff() ? `<button class="btn ghost sm" data-a="edit">แก้ไข</button>` : ""}</div>
+  </div>`;
+}
+async function itemDetail(it, s, onChange) {
+  let history = [];
+  try { history = (await store.query("loans", { contains: ["itemIds", it.id] })).sort((a, b) => b.borrowDate.localeCompare(a.borrowDate)); } catch (e) { console.warn(e); }
+  const current = history.filter((l) => ACTIVE.includes(l.status));
+  const past = history.filter((l) => !ACTIVE.includes(l.status)).slice(0, 8);
+  const qtyOf = (l) => (l.items || []).find((x) => x.itemId === it.id)?.qty || 0;
+  const line = (l) => `<div class="day-item static" data-loan="${l.id}"><span class="di-body"><b>${esc(l.borrowerName)} ${typeBadge(l.borrowerType)}</b><span>${dateRange(l)} · ${qtyOf(l)} ชิ้น</span></span>${stBadge(l)}</div>`;
+  const m = openModal(it.name, `
+    <div class="detail-top">${itemBadge(s)} <span class="clip">ว่าง ${s.free}/${s.qty} ชิ้น${s.pend ? ` · รออนุมัติ ${s.pend}` : ""}</span></div>
+    <dl class="dl"><dt>หมวดหมู่</dt><dd>${catIcon(it.category)} ${esc(it.category)}</dd><dt>รหัส</dt><dd>${esc(it.code) || "–"}</dd>
+      <dt>ที่เก็บ</dt><dd>${esc(it.location) || "–"}</dd><dt>สภาพ</dt><dd>${esc(it.condition || "พร้อมใช้งาน")}</dd>
+      <dt>ผู้ยืมได้</dt><dd>${it.allowStudents === false ? "เฉพาะครู / บุคลากร" : "ครูและนักเรียน"}</dd><dt>หมายเหตุ</dt><dd>${esc(it.note) || "–"}</dd></dl>
+    <h3 class="mh">กำลังยืม / รออนุมัติ</h3>${current.length ? `<div class="day-list">${current.map(line).join("")}</div>` : `<p class="muted-p">ไม่มี</p>`}
+    <h3 class="mh">ประวัติล่าสุด</h3>${past.length ? `<div class="day-list">${past.map(line).join("")}</div>` : `<p class="muted-p">ยังไม่มีประวัติการยืม</p>`}
+    <div class="form-actions" style="margin-top:18px">${isStaff() ? `<button class="btn ghost" data-edit>แก้ไขอุปกรณ์</button>` : ""}${!s.broken && canBorrow(it) ? `<a class="btn" href="#/borrow?item=${it.id}">ยืมอุปกรณ์นี้</a>` : ""}</div>`);
+  $$("[data-loan]", m.el).forEach((x) => (x.onclick = () => { m.close(); showLoan(history.find((l) => l.id === x.dataset.loan), onChange); }));
+  const ed = $("[data-edit]", m.el);
+  if (ed) ed.onclick = () => { m.close(); itemForm(it, onChange); };
+}
+function itemForm(rec, done) {
+  const r = rec || { name: "", category: "", code: "", quantity: 1, condition: "พร้อมใช้งาน", location: "", allowStudents: true, note: "" };
+  const cats = [...new Set([...CATEGORIES.map((c) => c.name), ...(state.items || []).map((x) => x.category)])].filter(Boolean);
+  const m = openModal(rec ? "แก้ไขอุปกรณ์" : "เพิ่มอุปกรณ์", `<form class="form" id="itf" novalidate>
+      <label class="f full"><span>ชื่ออุปกรณ์ *</span><input class="inp" name="name" required maxlength="100" value="${esc(r.name)}" placeholder="เช่น กล้อง Canon EOS 90D"></label>
+      <label class="f full"><span>หมวดหมู่ * <small>(เลือก หรือพิมพ์หมวดใหม่)</small></span><input class="inp" name="category" required list="dl-cat" maxlength="60" value="${esc(r.category)}"><datalist id="dl-cat">${cats.map((c) => `<option value="${esc(c)}">`).join("")}</datalist></label>
+      <label class="f"><span>รหัส / เลขครุภัณฑ์</span><input class="inp" name="code" maxlength="40" value="${esc(r.code)}"></label>
+      <label class="f"><span>จำนวน (ชิ้น) *</span><input class="inp" name="quantity" type="number" min="1" max="999" required inputmode="numeric" value="${esc(r.quantity)}"></label>
+      <label class="f"><span>สภาพ</span><select class="inp" name="condition">${opts(CONDITIONS, r.condition || "พร้อมใช้งาน")}</select></label>
+      <label class="f"><span>ที่เก็บ</span><input class="inp" name="location" maxlength="80" value="${esc(r.location)}" placeholder="เช่น ตู้ A ห้องโสต"></label>
+      <label class="f full check"><input type="checkbox" name="allowStudents"${r.allowStudents !== false ? " checked" : ""}> นักเรียนยืมได้ <small>(ไม่ติ๊ก = เฉพาะครู / บุคลากร)</small></label>
+      <label class="f full"><span>หมายเหตุ</span><input class="inp" name="note" maxlength="200" value="${esc(r.note)}"></label>
+      <div class="full form-actions">${rec ? `<button type="button" class="btn danger" data-del style="margin-right:auto">ลบอุปกรณ์</button>` : ""}<button type="button" class="btn ghost" data-x>ยกเลิก</button><button class="btn" type="submit">บันทึก</button></div></form>`);
+  const f = $("#itf", m.el);
+  $("[data-x]", m.el).onclick = m.dismiss;
+  const del = $("[data-del]", m.el);
+  if (del) del.onclick = async () => {
+    try {
+      const act = (await store.query("loans", { contains: ["itemIds", r.id] })).filter((l) => ACTIVE.includes(l.status));
+      if (act.length) return toast(`ลบไม่ได้: ยังมีรายการยืม/คำขอที่ค้างอยู่ ${act.length} รายการ (ตั้งสภาพเป็น "ส่งซ่อม" แทนได้)`, true);
+      if (!confirm(`ลบ "${r.name}" ออกจากระบบ? ประวัติการยืมเดิมยังอยู่ในสถิติ`)) return;
+      await store.remove("items", r.id); state.items = null; m.close(); toast("ลบแล้ว"); done();
+    } catch (e) { fail(e); }
+  };
+  f.onsubmit = async (e) => {
+    e.preventDefault();
+    if (!f.reportValidity()) return;
+    const v = Object.fromEntries(new FormData(f));
+    const data = {
+      name: v.name.trim(), category: v.category.trim(), code: v.code.trim(), quantity: Math.max(1, parseInt(v.quantity, 10) || 1),
+      condition: v.condition, location: v.location.trim(), allowStudents: !!f.elements.allowStudents.checked, note: v.note.trim(), updatedAt: Date.now(),
+    };
+    try {
+      if (rec) await store.update("items", r.id, data); else await store.add("items", { ...data, createdAt: Date.now() });
+      state.items = null; m.close(); toast("บันทึกแล้ว"); done();
+    } catch (err) { fail(err); }
+  };
+}
+
+// ============================================================
+//  ยืมอุปกรณ์
+// ============================================================
+async function borrow(el, params) {
+  const u = state.user, staff = isStaff(), t = today();
+  const [list, active] = await Promise.all([getItems(true), activeLoans()]);
+  const usable = list.filter((it) => it.condition === "พร้อมใช้งาน" || !it.condition);
+  const pre = usable.find((it) => it.id === params.get("item") && canBorrow(it));
+  const qty = new Map(pre ? [[pre.id, 1]] : []);
+  const d0 = params.get("date") && params.get("date") >= t ? params.get("date") : t;
+  el.innerHTML = `
+    <div class="wrap narrow"><div class="page-head"><h1>ยืมอุปกรณ์</h1><p>${staff ? "บันทึกการยืมแทนผู้ยืม รายการที่พนักงานโสตบันทึกจะอนุมัติทันที" : "เลือกอุปกรณ์และวันที่ แล้วส่งคำขอ พนักงานโสตจะอนุมัติและแจ้งผลในหน้า “รายการของฉัน”"}</p></div>
+    <div class="section">
+    ${usable.length ? "" : `<p class="note warn">ยังไม่มีอุปกรณ์ที่พร้อมให้ยืม${staff ? ` <a href="#/items">เพิ่มอุปกรณ์</a>` : ""}</p>`}
+    <form id="bf" class="form" novalidate>
+      <h2 class="full fh">1. ผู้ยืม</h2>
+      ${staff ? `
+        <label class="f full"><span>ชื่อผู้ยืม *</span><input class="inp" name="borrowerName" required maxlength="80" value="${esc(u.name)}"></label>
+        <fieldset class="full"><legend>ประเภทผู้ยืม *</legend>${typeChips("type", u.type || "teacher")}</fieldset>
+        ${typeFields(u)}`
+      : `<div class="full who-card">${esc(u.name)} ${typeBadge(u.type)}<span class="muted">${esc(u.type === "student" ? [u.classroom, u.studentNo && "เลขที่ " + u.studentNo].filter(Boolean).join(" ") : u.department)}</span> <a href="#/profile" class="linkbtn">แก้ไขข้อมูล</a></div>`}
+      <label class="f"><span>เบอร์โทรศัพท์ *</span><input class="inp" name="phone" required inputmode="tel" maxlength="20" value="${esc(u.phone)}" placeholder="08x-xxx-xxxx"></label>
+      <label class="f"><span>ใช้สำหรับ *</span><select class="inp" name="purpose" required>${opts(PURPOSES, "", "เลือกวัตถุประสงค์")}</select></label>
+      <h2 class="full fh">2. วันที่</h2>
+      <label class="f"><span>วันที่ยืม *</span><input class="inp" type="date" name="borrowDate" required value="${d0}" ${staff ? "" : `min="${t}"`}></label>
+      <label class="f"><span>กำหนดคืน *</span><input class="inp" type="date" name="dueDate" required value="${d0}" min="${d0}"></label>
+      <h2 class="full fh">3. อุปกรณ์ <small id="sel-sum"></small></h2>
+      <div class="full"><input class="inp sm" type="search" id="pick-q" placeholder="ค้นหาอุปกรณ์" style="width:min(260px,100%);margin-bottom:10px" aria-label="ค้นหาอุปกรณ์"><div id="picker"></div></div>
+      <label class="f full"><span>รายละเอียดเพิ่มเติม</span><textarea class="inp" name="note" rows="3" maxlength="600" placeholder="เช่น ใช้ถ่ายงานกีฬาสี ต้องการแบตเตอรี่สำรอง"></textarea></label>
+      <div class="full form-actions"><a class="btn ghost" href="#/">ยกเลิก</a><button class="btn" type="submit">${staff ? "บันทึกการยืม" : "ส่งคำขอยืม"}</button></div>
+    </form></div></div>`;
+  const f = $("#bf", el), picker = $("#picker", el);
+  if (staff) wireTypeFields(f);
+  const range = () => [f.elements.borrowDate.value || t, f.elements.dueDate.value || f.elements.borrowDate.value || t];
+  function paint() {
+    const [a, b] = range();
+    const q = $("#pick-q", el).value.trim().toLowerCase();
+    const byCat = new Map();
+    usable.filter((it) => !q || `${it.name} ${it.code || ""}`.toLowerCase().includes(q) || qty.has(it.id))
+      .forEach((it) => { const c = it.category || "อื่น ๆ"; if (!byCat.has(c)) byCat.set(c, []); byCat.get(c).push(it); });
+    picker.innerHTML = [...byCat.entries()].map(([c, its]) => `<div class="pick-cat">${catIcon(c)} ${esc(c)}</div>` + its.map((it) => {
+      const av = availableIn(it, active, a, b), n = qty.get(it.id) || 0, ok = canBorrow(it);
+      if (!ok) qty.delete(it.id);
+      else if (n > av) { if (av) qty.set(it.id, av); else qty.delete(it.id); }
+      const cur = qty.get(it.id) || 0;
+      return `<div class="pick${cur ? " on" : ""}${!ok || !av ? " off" : ""}" data-id="${it.id}">
+        <div class="pick-body"><b>${esc(it.name)}</b><span>${esc(it.code || "")}${!ok ? " · เฉพาะครู / บุคลากร" : ""}</span></div>
+        <span class="pick-av${av ? "" : " none"}">${av ? `ว่าง ${av}` : "ไม่ว่าง"}</span>
+        <div class="stepper"><button type="button" data-d="-1" aria-label="ลดจำนวน" ${cur ? "" : "disabled"}>−</button><span>${cur}</span><button type="button" data-d="1" aria-label="เพิ่มจำนวน" ${ok && cur < av ? "" : "disabled"}>+</button></div></div>`;
+    }).join("")).join("") || `<p class="muted-p">ไม่พบอุปกรณ์</p>`;
+    $$(".pick", picker).forEach((row) => $$("[data-d]", row).forEach((btn) => (btn.onclick = () => {
+      const id = row.dataset.id, n = Math.max(0, (qty.get(id) || 0) + Number(btn.dataset.d));
+      if (n) qty.set(id, n); else qty.delete(id);
+      paint();
+    })));
+    const units = [...qty.values()].reduce((s, x) => s + x, 0);
+    $("#sel-sum", el).textContent = units ? `เลือกแล้ว ${qty.size} รายการ ${units} ชิ้น` : "";
+  }
+  f.elements.borrowDate.onchange = () => {
+    const a = f.elements.borrowDate.value;
+    f.elements.dueDate.min = a;
+    if (f.elements.dueDate.value < a) f.elements.dueDate.value = a;
+    paint();
+  };
+  f.elements.dueDate.onchange = paint;
+  $("#pick-q", el).oninput = paint;
+  paint();
+  f.onsubmit = async (e) => {
+    e.preventDefault();
+    if (!f.reportValidity()) return;
+    const [a, b] = range();
+    if (b < a) return toast("กำหนดคืนต้องไม่ก่อนวันที่ยืม", true);
+    if (!qty.size) return toast("กรุณาเลือกอุปกรณ์อย่างน้อย 1 รายการ", true);
     const btn = $("button[type=submit]", f);
     btn.disabled = true;
     try {
-      if (isStaff()) await calReady();
-      await check();
-      if (clash.length) { btn.disabled = false; return toast("ช่วงเวลานี้มีการจองแล้ว กรุณาเลือกเวลาหรือห้องอื่น", true); }
-      const room = rooms.find((r) => r.id === v.roomId);
-      const b = {
-        uid: u.uid, requester: v.requester.trim(), title: v.title.trim(), roomId: room.id, roomName: room.name,
-        date: v.date, start: v.start, end: v.end, department: v.department, purpose: v.purpose,
-        services: fd.getAll("services"), equipment: fd.getAll("equipment"), attendees: Number(v.attendees || 0),
-        note: v.note.trim(), status: isStaff() ? "approved" : "pending", reason: "", createdAt: Date.now(),
+      const fresh = await activeLoans();
+      for (const [id, n] of qty) {
+        const it = usable.find((x) => x.id === id);
+        if (!canBorrow(it)) { btn.disabled = false; return toast(`"${it.name}" ให้ยืมเฉพาะครู / บุคลากร`, true); }
+        const av = availableIn(it, fresh, a, b);
+        if (n > av) { btn.disabled = false; active.splice(0, active.length, ...fresh); paint(); return toast(`"${it.name}" ว่างเพียง ${av} ชิ้นในช่วงวันที่เลือก`, true); }
+      }
+      const v = Object.fromEntries(new FormData(f));
+      const p = staff ? readProfile(f) : u;
+      const lineItems = [...qty].map(([id, n]) => { const it = usable.find((x) => x.id === id); return { itemId: id, name: it.name, category: it.category || "อื่น ๆ", code: it.code || "", qty: n }; });
+      const loan = {
+        uid: u.uid, borrowerName: staff ? v.borrowerName.trim() : u.name, borrowerType: p.type || "teacher",
+        classroom: p.classroom || "", studentNo: p.studentNo || "", department: p.department || "",
+        items: lineItems, itemIds: lineItems.map((x) => x.itemId), borrowDate: a, dueDate: b, purpose: v.purpose, note: v.note.trim(),
+        status: staff ? "approved" : "pending", reason: "", createdAt: Date.now(), ...(staff ? { approvedBy: u.name, onBehalf: true } : {}),
       };
-      const id = await store.add("bookings", b);
-      await store.set("bookingContacts", id, { uid: u.uid, phone: v.phone.trim(), email: u.email || "", date: v.date });
-      const added = isStaff() ? await calAdd({ ...b, id }) : null;
-      if (added !== false) toast(isStaff() ? (added ? "บันทึกการจองและลงปฏิทินแล้ว" : "บันทึกการจองแล้ว") : "ส่งคำขอแล้ว รอการตรวจสอบ");
+      if (staff) await calReady();
+      const id = await store.add("loans", loan);
+      await store.set("loanContacts", id, { uid: u.uid, phone: v.phone.trim(), date: a });
+      if (!staff && !u.phone) { store.update("users", u.uid, { phone: v.phone.trim() }).catch(() => {}); u.phone = v.phone.trim(); }
+      const added = staff ? await calAdd({ ...loan, id }) : null;
+      if (added !== false) toast(staff ? (added ? "บันทึกการยืมและลงปฏิทินแล้ว" : "บันทึกการยืมแล้ว") : "ส่งคำขอยืมแล้ว รอการอนุมัติ");
       refreshPending();
-      location.hash = "#/my";
+      location.hash = staff ? "#/requests" : "#/my";
     } catch (err) { btn.disabled = false; fail(err); }
   };
 }
@@ -447,139 +715,182 @@ async function book(el, params) {
 //  รายการของฉัน
 // ============================================================
 async function my(el) {
-  const rows = (await store.query("bookings", { eq: ["uid", state.user.uid] })).sort((a, b) => (b.date + b.start).localeCompare(a.date + a.start));
-  const t = today();
-  const up = rows.filter((b) => b.date >= t).reverse(), past = rows.filter((b) => b.date < t);
-  const card = (b) => `<div class="item" data-id="${b.id}">
-      <div class="when"><b>${parseYmd(b.date).getDate()}</b><span>${thDate(b.date, { month: "short", year: "2-digit" })}</span></div>
-      <div><h3>${esc(b.title)}</h3><div class="meta">${b.start}–${b.end} · ${esc(b.roomName)}</div>${tagsOf(b)}
-        ${b.reason ? `<div class="meta" style="margin-top:4px">หมายเหตุจากพนักงานโสต: ${esc(b.reason)}</div>` : ""}</div>
-      <div class="side">${stBadge(b.status)}<span><button class="linkbtn" data-view>รายละเอียด</button>${
-        b.date >= t && (b.status === "pending" || b.status === "approved") ? ` · <button class="linkbtn" data-cancel style="color:var(--red)">ยกเลิก</button>` : ""}</span></div></div>`;
-  el.innerHTML = `<div class="wrap narrow"><div class="page-head head-row"><div><h1>รายการของฉัน</h1><p>ติดตามสถานะคำขอทั้งหมดของคุณ</p></div><a class="btn" href="#/book">จองเพิ่ม</a></div>
+  const rows = (await store.query("loans", { eq: ["uid", state.user.uid] })).sort((a, b) => (b.borrowDate + b.createdAt).localeCompare(a.borrowDate + a.createdAt));
+  const open = rows.filter((l) => ACTIVE.includes(l.status)), done = rows.filter((l) => !ACTIVE.includes(l.status));
+  const card = (l) => `<div class="item" data-id="${l.id}">
+      <div class="when"><b>${parseYmd(l.borrowDate).getDate()}</b><span>${thDate(l.borrowDate, { month: "short", year: "2-digit" })}</span></div>
+      <div><h3>${esc(itemsText(l))}</h3><div class="meta">${dateRange(l)} · ${esc(l.purpose || "")}${l.onBehalf ? ` · ผู้ยืม ${esc(l.borrowerName)}` : ""}</div>
+        ${l.reason ? `<div class="meta" style="margin-top:4px">หมายเหตุจากพนักงานโสต: ${esc(l.reason)}</div>` : ""}
+        ${l.status === "returned" ? `<div class="meta">คืนเมื่อ ${thDate(l.returnedDate)}</div>` : ""}</div>
+      <div class="side">${stBadge(l)}<span><button class="linkbtn" data-view>รายละเอียด</button>${l.status === "pending" ? ` · <button class="linkbtn" data-cancel style="color:var(--red)">ยกเลิก</button>` : ""}</span></div></div>`;
+  el.innerHTML = `<div class="wrap narrow"><div class="page-head head-row"><div><h1>รายการของฉัน</h1><p>ติดตามสถานะคำขอยืมและประวัติการยืมของคุณ</p></div><a class="btn" href="#/borrow">ยืมอุปกรณ์</a></div>
     <div class="section">
-      ${rows.length ? "" : `<div class="empty">ยังไม่มีรายการจอง</div>`}
-      ${up.length ? `<h2 style="font-size:19px;margin:0 0 12px">กำลังจะถึง</h2><div class="list">${up.map(card).join("")}</div>` : ""}
-      ${past.length ? `<h2 style="font-size:19px;margin:32px 0 12px">ที่ผ่านมา</h2><div class="list">${past.map(card).join("")}</div>` : ""}
+      ${rows.length ? "" : `<div class="empty">ยังไม่มีรายการยืม</div>`}
+      ${open.length ? `<h2 style="font-size:19px;margin:0 0 12px">กำลังดำเนินการ</h2><div class="list">${open.map(card).join("")}</div>` : ""}
+      ${done.length ? `<h2 style="font-size:19px;margin:32px 0 12px">ประวัติ</h2><div class="list">${done.map(card).join("")}</div>` : ""}
     </div></div>`;
   $$(".item", el).forEach((it) => {
-    const b = rows.find((x) => x.id === it.dataset.id);
-    $("[data-view]", it).onclick = () => showBooking(b);
+    const l = rows.find((x) => x.id === it.dataset.id);
+    $("[data-view]", it).onclick = () => showLoan(l, () => render());
     const c = $("[data-cancel]", it);
     if (c) c.onclick = async () => {
-      if (!confirm(`ยกเลิกการจอง “${b.title}” ?`)) return;
-      try { await store.update("bookings", b.id, { status: "cancelled", updatedAt: Date.now() }); toast("ยกเลิกแล้ว"); refreshPending(); render(); } catch (e) { fail(e); }
+      if (!confirm(`ยกเลิกคำขอยืม “${itemsText(l)}” ?`)) return;
+      try { await store.update("loans", l.id, { status: "cancelled", updatedAt: Date.now() }); toast("ยกเลิกแล้ว"); refreshPending(); render(); } catch (e) { fail(e); }
     };
   });
 }
 
-async function showBooking(b, onChange) {
+// ============================================================
+//  รายละเอียด / อนุมัติ / รับคืน
+// ============================================================
+function loanActions(l) {
+  if (!isStaff()) return "";
+  if (l.status === "pending") return `<button class="btn ok sm" data-act="approve">อนุมัติ</button><button class="btn ghost sm" data-act="reject">ไม่อนุมัติ</button>`;
+  if (l.status === "approved") return `<button class="btn sm" data-act="return">รับคืน</button>`;
+  return "";
+}
+async function loanAction(l, act) {
+  if (act === "approve") return decide(l, "approved");
+  if (act === "reject") return decide(l, "rejected");
+  if (act === "return") return receiveReturn(l);
+  return false;
+}
+async function showLoan(l, onChange) {
+  if (!l) return;
   let contact = null;
-  if (isStaff() || b.uid === state.user.uid) { try { contact = await store.get("bookingContacts", b.id); } catch {} }
-  const m = openModal(b.title, `<dl class="dl">
-      <dt>สถานะ</dt><dd>${stBadge(b.status)}${b.reason ? ` <span style="color:var(--ink-2)">${esc(b.reason)}</span>` : ""}</dd>
-      <dt>วันที่</dt><dd>${thDateLong(b.date)}</dd><dt>เวลา</dt><dd>${b.start}–${b.end} น.</dd>
-      <dt>สถานที่</dt><dd>${esc(b.roomName)}</dd><dt>หน่วยงาน</dt><dd>${esc(b.department)}</dd><dt>ใช้สำหรับ</dt><dd>${esc(b.purpose)}</dd>
-      <dt>ขอรับบริการ</dt><dd>${(b.services || []).map(esc).join(", ") || "–"}</dd><dt>อุปกรณ์</dt><dd>${(b.equipment || []).map(esc).join(", ") || "–"}</dd>
-      <dt>ผู้เข้าร่วม</dt><dd>${b.attendees ? num(b.attendees) + " คน" : "–"}</dd>
-      <dt>ผู้ขอใช้</dt><dd>${esc(b.requester)}${contact?.phone ? ` · <a href="tel:${esc(contact.phone)}">${esc(contact.phone)}</a>` : ""}</dd>
-      <dt>รายละเอียด</dt><dd>${esc(b.note) || "–"}</dd>
-      ${isStaff() && cal.enabled && b.status === "approved" ? `<dt>ปฏิทิน</dt><dd>${b.calendarEventId ? "📅 ลงปฏิทินแล้ว" : `ยังไม่ได้ลงปฏิทิน · <button class="linkbtn" data-cal>ลงปฏิทิน</button>`}</dd>` : ""}</dl>
-    ${isStaff() ? `<div class="form-actions" style="margin-top:20px">
-      <button class="btn danger sm" data-del>ลบรายการ</button>
-      ${b.status !== "rejected" ? `<button class="btn ghost sm" data-s="rejected">ไม่อนุมัติ</button>` : ""}
-      ${b.status !== "approved" ? `<button class="btn ok sm" data-s="approved">อนุมัติ</button>` : ""}</div>` : ""}`);
-  $$("[data-s]", m.el).forEach((btn) => (btn.onclick = async () => { if (await decide(b, btn.dataset.s)) { m.close(); onChange?.(); } }));
+  if (isStaff() || l.uid === state.user.uid) { try { contact = await store.get("loanContacts", l.id); } catch {} }
+  const m = openModal("รายละเอียดการยืม", `<dl class="dl">
+      <dt>สถานะ</dt><dd>${stBadge(l)}${l.reason ? ` <span style="color:var(--ink-2)">${esc(l.reason)}</span>` : ""}</dd>
+      <dt>ผู้ยืม</dt><dd>${who(l)}${contact?.phone ? `<div><a href="tel:${esc(contact.phone)}">${esc(contact.phone)}</a></div>` : ""}</dd>
+      <dt>อุปกรณ์</dt><dd>${(l.items || []).map((x) => `${catIcon(x.category)} ${esc(x.name)}${x.code ? ` <span class="muted">(${esc(x.code)})</span>` : ""} × ${x.qty}`).join("<br>")}</dd>
+      <dt>วันที่ยืม</dt><dd>${thDateLong(l.borrowDate)}</dd><dt>กำหนดคืน</dt><dd>${thDateLong(l.dueDate)}${isOverdue(l) ? ` <b style="color:var(--red)">(เกิน ${daysBetween(l.dueDate, today())} วัน)</b>` : ""}</dd>
+      ${l.status === "returned" ? `<dt>คืนเมื่อ</dt><dd>${thDateLong(l.returnedDate)}${l.returnNote ? `<div class="muted">${esc(l.returnNote)}</div>` : ""}</dd>` : ""}
+      <dt>ใช้สำหรับ</dt><dd>${esc(l.purpose) || "–"}</dd><dt>รายละเอียด</dt><dd>${esc(l.note) || "–"}</dd>
+      ${l.approvedBy ? `<dt>ผู้อนุมัติ</dt><dd>${esc(l.approvedBy)}</dd>` : ""}
+      ${isStaff() && cal.enabled && l.status === "approved" ? `<dt>ปฏิทิน</dt><dd>${l.calendarEventId ? "📅 ลงปฏิทินแล้ว" : `ยังไม่ได้ลงปฏิทิน · <button class="linkbtn" data-cal>ลงปฏิทิน</button>`}</dd>` : ""}</dl>
+    ${isStaff() ? `<div class="form-actions" style="margin-top:20px"><button class="btn danger sm" data-del style="margin-right:auto">ลบรายการ</button>${loanActions(l)}</div>` : ""}`);
+  $$("[data-act]", m.el).forEach((b) => (b.onclick = async () => { if (await loanAction(l, b.dataset.act)) { m.close(); onChange?.(); } }));
   const calBtn = $("[data-cal]", m.el);
-  if (calBtn) calBtn.onclick = async () => {
-    await calReady();
-    if (await calAdd(b)) { toast("ลงปฏิทินแล้ว"); m.close(); onChange?.(); }
-  };
+  if (calBtn) calBtn.onclick = async () => { await calReady(); if (await calAdd(l)) { toast("ลงปฏิทินแล้ว"); m.close(); onChange?.(); } };
   const del = $("[data-del]", m.el);
   if (del) del.onclick = async () => {
     if (!confirm("ลบรายการนี้ถาวร? (จะไม่ถูกนับในสถิติอีก)")) return;
-    try { if (b.calendarEventId) { await calReady(); await calRemove(b); }
-      await store.remove("bookings", b.id); await store.remove("bookingContacts", b.id).catch(() => {}); m.close(); toast("ลบแล้ว"); refreshPending(); onChange?.(); } catch (e) { fail(e); }
+    try {
+      if (l.calendarEventId) { await calReady(); await calRemove(l); }
+      await store.remove("loans", l.id); await store.remove("loanContacts", l.id).catch(() => {});
+      m.close(); toast("ลบแล้ว"); refreshPending(); onChange?.();
+    } catch (e) { fail(e); }
   };
 }
-
-async function decide(b, status) {
+async function decide(l, status) {
   try {
     let reason = "";
-    if (status === "approved" || b.calendarEventId) await calReady();
     if (status === "rejected") {
-      reason = await askText("ไม่อนุมัติคำขอ", "เหตุผล (ผู้ขอจะเห็นข้อความนี้)", "ยืนยันไม่อนุมัติ");
+      reason = await askText("ไม่อนุมัติคำขอยืม", "เหตุผล (ผู้ยืมจะเห็นข้อความนี้)", "ยืนยันไม่อนุมัติ");
       if (reason === null) return false;
     } else {
-      const same = await store.query("bookings", { range: ["date", b.date, b.date] });
-      const clash = same.filter((x) => x.id !== b.id && x.status === "approved" && overlaps(x, b));
-      if (clash.length && !confirm(`ช่วงเวลานี้มีรายการที่อนุมัติแล้ว:\n${clash.map((x) => `${x.start}–${x.end} ${x.title}`).join("\n")}\n\nอนุมัติซ้อนหรือไม่?`)) return false;
+      await calReady();
+      const [fresh, list] = await Promise.all([activeLoans(), getItems(true)]);
+      const short = (l.items || []).map((x) => {
+        const it = list.find((i) => i.id === x.itemId);
+        const av = it ? availableIn(it, fresh.filter((o) => o.status === "approved"), l.borrowDate, l.dueDate, l.id) : 0;
+        return av < x.qty ? `${x.name}: ว่าง ${av} ต้องการ ${x.qty}` : null;
+      }).filter(Boolean);
+      if (short.length && !confirm(`อุปกรณ์ไม่พอในช่วงวันที่นี้\n${short.join("\n")}\n\nอนุมัติต่อหรือไม่?`)) return false;
     }
-    await store.update("bookings", b.id, { status, reason, decidedBy: state.user.name, updatedAt: Date.now() });
-    b.status = status;
-    const synced = status === "approved" ? await calAdd(b) : await calRemove(b);
+    const patch = { status, reason, updatedAt: Date.now(), ...(status === "approved" ? { approvedBy: state.user.name, approvedAt: Date.now() } : {}) };
+    await store.update("loans", l.id, patch);
+    Object.assign(l, patch);
+    const synced = status === "approved" ? await calAdd(l) : null;
     if (synced !== false) toast(status === "approved" ? (synced ? "อนุมัติและลงปฏิทินแล้ว" : "อนุมัติแล้ว") : "บันทึกไม่อนุมัติแล้ว");
     refreshPending();
     return true;
   } catch (e) { fail(e); return false; }
 }
+function receiveReturn(l) {
+  return new Promise((res) => {
+    const m = openModal("รับคืนอุปกรณ์", `<form class="form" id="rf" novalidate style="grid-template-columns:1fr">
+        <p class="note info" style="margin:0">${esc(l.borrowerName)} · ${esc(itemsText(l))}</p>
+        <label class="f"><span>วันที่คืน *</span><input class="inp" type="date" name="returnedDate" required value="${today() < l.borrowDate ? l.borrowDate : today()}" min="${l.borrowDate}"></label>
+        <fieldset><legend>อุปกรณ์ที่ชำรุด / มีปัญหา (ถ้ามี ระบบจะเปลี่ยนสภาพเป็น "ชำรุด")</legend>
+          ${(l.items || []).map((x) => `<label class="f check"><input type="checkbox" name="damaged" value="${x.itemId}"> ${esc(x.name)}</label>`).join("")}</fieldset>
+        <label class="f"><span>บันทึกการคืน</span><input class="inp" name="returnNote" maxlength="200" placeholder="เช่น คืนครบ สภาพดี"></label>
+        <div class="form-actions"><button type="button" class="btn ghost" data-x>ยกเลิก</button><button class="btn ok" type="submit">ยืนยันรับคืน</button></div></form>`);
+    m.onClose = () => res(false);
+    $("[data-x]", m.el).onclick = m.dismiss;
+    const f = $("#rf", m.el);
+    f.onsubmit = async (e) => {
+      e.preventDefault();
+      if (!f.reportValidity()) return;
+      const fd = new FormData(f), damaged = fd.getAll("damaged");
+      const patch = { status: "returned", returnedDate: fd.get("returnedDate"), returnNote: String(fd.get("returnNote") || "").trim(), returnedBy: state.user.name, damaged, updatedAt: Date.now() };
+      try {
+        await store.update("loans", l.id, patch);
+        Object.assign(l, patch);
+        for (const id of damaged) await store.update("items", id, { condition: "ชำรุด", note: `แจ้งชำรุดเมื่อคืน ${thDate(patch.returnedDate)}${patch.returnNote ? ": " + patch.returnNote : ""}`, updatedAt: Date.now() }).catch(() => {});
+        state.items = null;
+        await calReturned(l);
+        m.close(); toast("บันทึกการคืนแล้ว"); res(true);
+      } catch (err) { fail(err); }
+    };
+  });
+}
 
 // ============================================================
-//  คำขอใช้บริการ (พนักงานโสต)
+//  คำขอยืม-คืน (พนักงานโสต)
 // ============================================================
-const reqState = { tab: "pending", month: today().slice(0, 7) };
+const reqState = { tab: "pending", month: today().slice(0, 7), type: "", q: "" };
 async function requests(el) {
-  el.innerHTML = `<div class="wrap"><div class="page-head head-row"><div><h1>คำขอใช้บริการ</h1><p>ตรวจสอบ อนุมัติ และจัดการรายการจองทั้งหมด</p></div><a class="btn" href="#/book">บันทึกการจองแทนผู้ขอ</a></div></div>
+  el.innerHTML = `<div class="wrap"><div class="page-head head-row"><div><h1>คำขอยืม-คืน</h1><p>อนุมัติคำขอ รับคืนอุปกรณ์ และติดตามรายการที่เกินกำหนด</p></div><a class="btn" href="#/borrow">บันทึกการยืมแทนผู้ยืม</a></div></div>
     <section class="band"><div class="wrap" style="padding-top:24px;padding-bottom:56px"><div id="req"></div></div></section>`;
   const host = $("#req", el);
-  const TABS = [["pending", "รอตรวจสอบ"], ["approved", "อนุมัติ"], ["rejected", "ไม่อนุมัติ"], ["cancelled", "ยกเลิก"], ["all", "ทั้งหมด"]];
-  if (!cal.demo) calSweep();
   async function draw() {
-    const { tab, month } = reqState;
+    const t = today(), { tab, month } = reqState;
+    const active = await activeLoans();
+    const pend = active.filter((l) => l.status === "pending"), out = active.filter((l) => l.status === "approved"), over = out.filter((l) => isOverdue(l, t));
     let rows;
-    if (tab === "pending") rows = await store.query("bookings", { eq: ["status", "pending"] });
+    if (tab === "pending") rows = pend;
+    else if (tab === "out") rows = out;
+    else if (tab === "overdue") rows = over;
     else {
       const from = month + "-01", to = ymd(new Date(+month.slice(0, 4), +month.slice(5), 0));
-      rows = (await store.query("bookings", { range: ["date", from, to] })).filter((b) => tab === "all" || b.status === tab);
+      rows = (await store.query("loans", { range: ["borrowDate", from, to] }))
+        .filter((l) => tab === "all" || (tab === "returned" ? l.status === "returned" : l.status === "rejected" || l.status === "cancelled"));
     }
-    rows.sort((a, b) => (a.date + a.start).localeCompare(b.date + b.start));
-    host.innerHTML = `<div class="toolbar"><div class="seg">${TABS.map(([k, l]) => `<button data-tab="${k}" class="${k === tab ? "on" : ""}">${l}</button>`).join("")}</div>
-        <span class="spacer"></span>${!cal.enabled ? "" : cal.connected()
-          ? `<span class="clip">📅 ${cal.demo ? "ปฏิทินจำลอง (โหมดตัวอย่าง)" : "เชื่อมต่อ Google Calendar แล้ว"}</span>${cal.demo ? "" : `<button class="btn ghost sm" id="rq-sync">ดึงข้อมูลจากปฏิทิน</button>`}`
-          : `<button class="btn ghost sm" id="rq-cal">📅 เชื่อมต่อ Google Calendar</button>`}
-        ${tab === "pending" ? "" : `<label class="clip">เดือน <input class="inp sm" type="month" value="${month}" id="rq-month"></label>`}</div>
-      ${rows.length ? `<div class="table-wrap"><table class="t"><thead><tr><th>วัน / เวลา</th><th>รายการ</th><th>สถานที่</th><th>หน่วยงาน / ผู้ขอ</th><th>สถานะ</th><th></th></tr></thead><tbody>
-        ${rows.map((b) => `<tr data-id="${b.id}"><td style="white-space:nowrap">${thDate(b.date)}<div class="muted">${b.start}–${b.end}</div></td>
-          <td><b>${esc(b.title)}</b><div class="muted">${esc(b.purpose)}</div>${tagsOf(b)}</td><td>${esc(b.roomName)}</td>
-          <td>${esc(b.department)}<div class="muted">${esc(b.requester)}</div></td><td>${stBadge(b.status)}${b.calendarEventId ? `<div class="muted" style="margin-top:4px">📅 ลงปฏิทินแล้ว</div>` : ""}</td>
-          <td><div class="acts">${b.status === "pending" ? `<button class="btn ok sm" data-s="approved">อนุมัติ</button><button class="btn ghost sm" data-s="rejected">ไม่อนุมัติ</button>` : ""}<button class="btn ghost sm" data-view>ดู</button></div></td></tr>`).join("")}
-        </tbody></table></div>` : `<div class="empty">${tab === "pending" ? "ไม่มีคำขอที่รอตรวจสอบ 🎉" : "ไม่มีรายการในเดือนนี้"}</div>`}`;
+    const TABS = [["pending", "รออนุมัติ", pend.length], ["out", "กำลังยืม", out.length], ["overdue", "เกินกำหนด", over.length], ["returned", "คืนแล้ว"], ["closed", "ไม่อนุมัติ/ยกเลิก"], ["all", "ทั้งหมด"]];
+    host.innerHTML = `<div class="toolbar"><div class="seg">${TABS.map(([k, l, n]) => `<button data-tab="${k}" class="${k === tab ? "on" : ""}">${l}${n !== undefined ? ` <small>${n}</small>` : ""}</button>`).join("")}</div>
+        <span class="spacer"></span>${!cal.enabled ? "" : cal.connected() ? `<span class="clip">📅 ${cal.demo ? "ปฏิทินจำลอง" : "เชื่อมต่อ Google Calendar แล้ว"}</span>` : `<button class="btn ghost sm" id="rq-cal">📅 เชื่อมต่อ Google Calendar</button>`}</div>
+      <div class="toolbar">
+        <div class="seg">${[["", "ทุกคน"], ["teacher", "ครู"], ["student", "นักเรียน"]].map(([k, l]) => `<button data-type="${k}" class="${reqState.type === k ? "on" : ""}">${l}</button>`).join("")}</div>
+        <input class="inp sm" type="search" id="rq-q" placeholder="ค้นหาผู้ยืมหรืออุปกรณ์" value="${esc(reqState.q)}" style="width:min(240px,100%)" aria-label="ค้นหา">
+        <span class="spacer"></span>${["pending", "out", "overdue"].includes(tab) ? "" : `<label class="clip">เดือน <input class="inp sm" type="month" value="${month}" id="rq-month"></label>`}</div>
+      <div id="rq-list"></div>`;
+    const listEl = $("#rq-list", host);
+    const paint = () => {
+      const q = reqState.q.trim().toLowerCase();
+      const shown = rows.filter((l) => (!reqState.type || l.borrowerType === reqState.type) &&
+        (!q || `${l.borrowerName} ${l.classroom} ${l.department} ${itemsText(l)}`.toLowerCase().includes(q)))
+        .sort((a, b) => (tab === "pending" ? a.createdAt - b.createdAt : tab === "out" || tab === "overdue" ? a.dueDate.localeCompare(b.dueDate) : b.borrowDate.localeCompare(a.borrowDate)));
+      listEl.innerHTML = shown.length ? loanTable(shown, { showStatus: true, actions: true })
+        : `<div class="empty">${tab === "pending" ? "ไม่มีคำขอที่รออนุมัติ 🎉" : tab === "overdue" ? "ไม่มีรายการเกินกำหนด 🎉" : "ไม่มีรายการ"}</div>`;
+      wireLoanTable(listEl, shown, () => draw().catch(fail));
+    };
     $$("[data-tab]", host).forEach((b) => (b.onclick = () => { reqState.tab = b.dataset.tab; draw().catch(fail); }));
-    const cb = $("#rq-cal", host);
-    if (cb) cb.onclick = async () => {
-      try { await cal.connect(); toast("เชื่อมต่อ Google Calendar แล้ว"); await calSweep(); await calSync(true); draw().catch(fail); } catch (e) { fail(e); }
-    };
-    const sb = $("#rq-sync", host);
-    if (sb) sb.onclick = async () => {
-      sb.disabled = true;
-      try { const n = await calSync(true); await calSweep(); toast(n ? `อัปเดตจากปฏิทิน ${n} รายการ` : "ข้อมูลตรงกับปฏิทินแล้ว"); } catch (e) { fail(e); }
-      sb.disabled = false;
-    };
+    $$("[data-type]", host).forEach((b) => (b.onclick = () => { reqState.type = b.dataset.type; $$("[data-type]", host).forEach((x) => x.classList.toggle("on", x === b)); paint(); }));
+    $("#rq-q", host).oninput = (e) => { reqState.q = e.target.value; paint(); };
     const mi = $("#rq-month", host);
     if (mi) mi.onchange = () => { if (mi.value) { reqState.month = mi.value; draw().catch(fail); } };
-    $$("tr[data-id]", host).forEach((tr) => {
-      const b = rows.find((x) => x.id === tr.dataset.id);
-      $("[data-view]", tr).onclick = () => showBooking(b, () => draw().catch(fail));
-      $$("[data-s]", tr).forEach((btn) => (btn.onclick = async () => { if (await decide(b, btn.dataset.s)) draw().catch(fail); }));
-    });
+    const cb = $("#rq-cal", host);
+    if (cb) cb.onclick = async () => { try { await cal.connect(); toast("เชื่อมต่อ Google Calendar แล้ว"); draw().catch(fail); } catch (e) { fail(e); } };
+    paint();
   }
   await draw();
 }
 
 // ============================================================
-//  สถิติ (พนักงานโสต)
+//  สถิติการยืม (พนักงานโสต)
 // ============================================================
-const statState = { preset: "month", from: "", to: "" };
+const statState = { preset: "month", from: "", to: "", type: "" };
 function presetRange(p) {
   const t = today();
   if (p === "week") { const m = mondayOf(t); return [m, addDays(m, 6)]; }
@@ -588,63 +899,68 @@ function presetRange(p) {
   return [statState.from || t, statState.to || t];
 }
 function trendBuckets(stats, from, to) {
-  const days = Math.round((parseYmd(to) - parseYmd(from)) / 864e5) + 1;
+  const days = daysBetween(from, to) + 1;
   const out = [];
   if (days <= 31) {
     for (let d = from; d <= to; d = addDays(d, 1)) out.push({ label: String(parseYmd(d).getDate()), full: thDate(d, { weekday: "short", day: "numeric", month: "short" }), v: stats.byDay.get(d) || 0 });
     return { unit: "รายวัน", out };
   }
   if (days <= 124) {
-    for (let d = mondayOf(from); d <= to; d = addDays(d, 7)) out.push({ label: thDate(d, { day: "numeric", month: "short" }), full: "สัปดาห์ " + weekLabel(d), v: stats.byWeek.get(d) || 0 });
+    for (let d = mondayOf(from); d <= to; d = addDays(d, 7)) out.push({ label: thShort(d), full: "สัปดาห์ " + weekLabel(d), v: stats.byWeek.get(d) || 0 });
     return { unit: "รายสัปดาห์", out };
   }
   const c = parseYmd(from.slice(0, 7) + "-01");
   while (ymd(c) <= to) { const k = ymd(c).slice(0, 7); out.push({ label: monthShort(k), full: monthShort(k), v: stats.byMonth.get(k) || 0 }); c.setMonth(c.getMonth() + 1); }
   return { unit: "รายเดือน", out };
 }
-function barList(map, unit = "ครั้ง") {
-  const e = sortedEntries(map);
-  if (!e.length) return `<p class="muted" style="color:var(--ink-3);font-size:14px;margin:0">ไม่มีข้อมูล</p>`;
+function barList(map, unit = "ครั้ง", limit = 12) {
+  const e = sortedEntries(map).slice(0, limit);
+  if (!e.length) return `<p style="color:var(--ink-3);font-size:14px;margin:0">ไม่มีข้อมูล</p>`;
   const max = e[0][1];
   return `<div class="bars">${e.map(([k, v]) => `<div class="bar-row" data-tip="<b>${esc(k)}</b><br>${num(v)} ${unit}"><span class="lb">${esc(k)}</span><span class="track"><span class="fill" style="width:${(v / max) * 100}%"></span></span><span class="val">${num(v)}</span></div>`).join("")}</div>`;
 }
-
 async function stats(el) {
-  el.innerHTML = `<div class="wrap"><div class="page-head"><h1>สถิติการใช้บริการ</h1><p>นับจากรายการที่ได้รับอนุมัติ เลือกช่วงเวลาแล้วส่งออกเป็นรายงาน Word ได้</p></div></div>
+  el.innerHTML = `<div class="wrap"><div class="page-head"><h1>สถิติการยืมอุปกรณ์</h1><p>นับจากรายการที่อนุมัติแล้ว (กำลังยืมและคืนแล้ว) ตามวันที่ยืม แยกครูและนักเรียน ส่งออกเป็นรายงาน Word ได้</p></div></div>
     <section class="band"><div class="wrap" style="padding-top:24px;padding-bottom:56px"><div id="st"></div></div></section>`;
   const host = $("#st", el);
   const PRESETS = [["week", "สัปดาห์นี้"], ["month", "เดือนนี้"], ["fy", "ปีงบประมาณนี้"], ["custom", "กำหนดเอง"]];
+  const TYPES = [["", "ทุกคน"], ["teacher", "ครู"], ["student", "นักเรียน"]];
   async function draw() {
     const [from, to] = presetRange(statState.preset);
     statState.from = from; statState.to = to;
-    const rows = (await store.query("bookings", { range: ["date", from, to] })).filter((b) => b.status === "approved").sort((a, b) => (a.date + a.start).localeCompare(b.date + b.start));
+    const all = (await store.query("loans", { range: ["borrowDate", from, to] })).filter((l) => l.status === "approved" || l.status === "returned");
+    const rows = all.filter((l) => !statState.type || (statState.type === "student") === (l.borrowerType === "student")).sort((a, b) => a.borrowDate.localeCompare(b.borrowDate));
     const s = computeStats(rows);
     const tr = trendBuckets(s, from, to);
     const max = Math.max(1, ...tr.out.map((x) => x.v));
     const step = Math.ceil(tr.out.length / 16);
+    const typeTxt = TYPES.find((x) => x[0] === statState.type)[1];
     host.innerHTML = `
       <div class="toolbar"><div class="seg">${PRESETS.map(([k, l]) => `<button data-p="${k}" class="${k === statState.preset ? "on" : ""}">${l}</button>`).join("")}</div>
         <input class="inp sm" type="date" id="s-from" value="${from}" aria-label="ตั้งแต่วันที่"><span class="clip">ถึง</span><input class="inp sm" type="date" id="s-to" value="${to}" aria-label="ถึงวันที่">
+        <div class="seg">${TYPES.map(([k, l]) => `<button data-t="${k}" class="${k === statState.type ? "on" : ""}">${l}</button>`).join("")}</div>
         <span class="spacer"></span><button class="btn ghost" id="s-print">พิมพ์</button><button class="btn" id="s-word">ดาวน์โหลดรายงาน Word</button></div>
       <div class="kpis">
-        <div class="kpi"><div class="k">จำนวนครั้งที่ให้บริการ</div><div class="v">${num(s.total)}<small>ครั้ง</small></div></div>
-        <div class="kpi"><div class="k">ชั่วโมงใช้งานรวม</div><div class="v">${s.hours.toLocaleString("th-TH", { maximumFractionDigits: 1 })}<small>ชม.</small></div></div>
-        <div class="kpi"><div class="k">ผู้เข้าร่วมรวม</div><div class="v">${num(s.attendees)}<small>คน</small></div></div>
-        <div class="kpi"><div class="k">หน่วยงานที่ใช้บริการ</div><div class="v">${s.byDept.size}<small>หน่วยงาน</small></div></div>
+        <div class="kpi"><div class="k">จำนวนครั้งที่ยืม</div><div class="v">${num(s.total)}<small>ครั้ง</small></div><div class="n">ครู ${num(s.teacher)} · นักเรียน ${num(s.student)}</div></div>
+        <div class="kpi"><div class="k">จำนวนอุปกรณ์ที่ยืม</div><div class="v">${num(s.units)}<small>ชิ้น</small></div></div>
+        <div class="kpi"><div class="k">ระยะเวลายืมเฉลี่ย</div><div class="v">${s.avgDays.toLocaleString("th-TH", { maximumFractionDigits: 1 })}<small>วัน</small></div><div class="n">จากรายการที่คืนแล้ว ${num(s.closed)} รายการ</div></div>
+        <div class="kpi${s.overdueNow ? " kpi-alert" : ""}"><div class="k">คืนช้า / เกินกำหนด</div><div class="v">${num(s.lateReturns + s.overdueNow)}<small>รายการ</small></div><div class="n">คืนช้า ${s.lateReturns} · ยังไม่คืน ${s.overdueNow}</div></div>
       </div>
-      <div class="card" style="margin-bottom:16px"><h2>จำนวนครั้งที่ให้บริการ ${tr.unit}</h2><p class="sub">${thDate(from)} – ${thDate(to)}</p>
+      <div class="card" style="margin-bottom:16px"><h2>จำนวนครั้งที่ยืม ${tr.unit}</h2><p class="sub">${thDate(from)} – ${thDate(to)} · ${typeTxt}</p>
         <div class="trend"><div class="trend-plot">${tr.out.map((x) => `<div class="trend-col" data-tip="<b>${esc(x.full)}</b><br>${x.v} ครั้ง">${x.v && tr.out.length <= 16 ? `<span class="tv">${x.v}</span>` : ""}<div class="b" style="height:${(x.v / max) * 100}%"></div></div>`).join("")}</div>
         <div class="trend-x">${tr.out.map((x, i) => `<span>${i % step === 0 ? esc(x.label) : ""}</span>`).join("")}</div></div></div>
       <div class="grid2">
-        <div class="card"><h2>สถานที่ขอรับบริการ</h2><p class="sub">จำนวนครั้งแยกตามห้อง</p>${barList(s.byRoom)}</div>
-        <div class="card"><h2>หน่วยงานที่ขอใช้</h2><p class="sub">จำนวนครั้งแยกตามหน่วยงาน</p>${barList(s.byDept)}</div>
-        <div class="card"><h2>บริการที่ขอรับ</h2><p class="sub">หนึ่งรายการอาจขอได้หลายบริการ</p>${barList(s.byService)}</div>
-        <div class="card"><h2>อุปกรณ์ที่ใช้</h2><p class="sub">หนึ่งรายการอาจใช้ได้หลายอุปกรณ์</p>${barList(s.byEquip)}</div>
-        <div class="card"><h2>ลักษณะการใช้</h2><p class="sub">จำนวนครั้งแยกตามวัตถุประสงค์</p>${barList(s.byPurpose)}</div>
-        <div class="card"><h2>สรุปรายเดือน</h2><p class="sub">จำนวนครั้งและชั่วโมงใช้งาน</p>
-          ${s.byMonth.size ? `<table class="t"><thead><tr><th>เดือน</th><th class="num">ครั้ง</th><th class="num">ชั่วโมง</th></tr></thead><tbody>${[...s.byMonth.keys()].sort().map((k) => `<tr><td>${parseYmd(k + "-01").toLocaleDateString("th-TH", { month: "long", year: "numeric" })}</td><td class="num">${num(s.byMonth.get(k))}</td><td class="num">${s.hoursByMonth.get(k).toLocaleString("th-TH", { maximumFractionDigits: 1 })}</td></tr>`).join("")}</tbody></table>` : `<p style="color:var(--ink-3);font-size:14px;margin:0">ไม่มีข้อมูล</p>`}</div>
+        <div class="card"><h2>หมวดหมู่อุปกรณ์</h2><p class="sub">จำนวนชิ้นที่ถูกยืม</p>${barList(s.byCategory, "ชิ้น")}</div>
+        <div class="card"><h2>อุปกรณ์ที่ถูกยืมมากที่สุด</h2><p class="sub">จำนวนชิ้น (10 อันดับแรก)</p>${barList(s.byItem, "ชิ้น", 10)}</div>
+        ${statState.type ? "" : `<div class="card"><h2>ผู้ยืมแยกตามประเภท</h2><p class="sub">จำนวนครั้ง</p>${barList(s.byType)}</div>`}
+        ${statState.type === "student" ? "" : `<div class="card"><h2>ครู: หน่วยงาน</h2><p class="sub">จำนวนครั้งแยกตามหน่วยงาน</p>${barList(s.byDept)}</div>`}
+        ${statState.type === "teacher" ? "" : `<div class="card"><h2>นักเรียน: ชั้น / ห้อง</h2><p class="sub">จำนวนครั้งแยกตามห้องเรียน</p>${barList(s.byClass)}</div>`}
+        <div class="card"><h2>วัตถุประสงค์</h2><p class="sub">จำนวนครั้ง</p>${barList(s.byPurpose)}</div>
+        <div class="card"><h2>สรุปรายเดือน</h2><p class="sub">จำนวนครั้งและจำนวนชิ้น</p>
+          ${s.byMonth.size ? `<table class="t"><thead><tr><th>เดือน</th><th class="num">ครั้ง</th><th class="num">ชิ้น</th></tr></thead><tbody>${[...s.byMonth.keys()].sort().map((k) => `<tr><td>${parseYmd(k + "-01").toLocaleDateString("th-TH", { month: "long", year: "numeric" })}</td><td class="num">${num(s.byMonth.get(k))}</td><td class="num">${num(s.unitsByMonth.get(k))}</td></tr>`).join("")}</tbody></table>` : `<p style="color:var(--ink-3);font-size:14px;margin:0">ไม่มีข้อมูล</p>`}</div>
       </div>`;
     $$("[data-p]", host).forEach((b) => (b.onclick = () => { statState.preset = b.dataset.p; draw().catch(fail); }));
+    $$("[data-t]", host).forEach((b) => (b.onclick = () => { statState.type = b.dataset.t; draw().catch(fail); }));
     const custom = () => {
       const a = $("#s-from", host).value, b = $("#s-to", host).value;
       if (!a || !b) return;
@@ -653,7 +969,7 @@ async function stats(el) {
     };
     $("#s-from", host).onchange = custom; $("#s-to", host).onchange = custom;
     $("#s-print", host).onclick = () => window.print();
-    $("#s-word", host).onclick = () => exportBookingReport({ from, to, rows, stats: s }).then(() => toast("ดาวน์โหลดรายงานแล้ว")).catch(fail);
+    $("#s-word", host).onclick = () => exportLoanReport({ from, to, rows, stats: s, typeLabel: typeTxt }).then(() => toast("ดาวน์โหลดรายงานแล้ว")).catch(fail);
   }
   await draw();
 }
@@ -809,82 +1125,121 @@ async function openFile(meta) {
   } catch (e) { w?.close(); fail(e); }
 }
 
+
 // ============================================================
-//  ตั้งค่า (พนักงานโสต)
+//  ตั้งค่า: ผู้ใช้งาน (พนักงานโสต)
 // ============================================================
+const userState = { q: "", role: "", type: "", st: "" };
 async function settings(el) {
-  el.innerHTML = `<div class="wrap"><div class="page-head"><h1>ตั้งค่า</h1><p>จัดการห้องที่เปิดให้จอง และสิทธิ์ผู้ใช้งาน</p></div></div>
+  el.innerHTML = `<div class="wrap"><div class="page-head head-row"><div><h1>ตั้งค่า</h1><p>จัดการบัญชีผู้ใช้งาน สิทธิ์ การระงับ และการลบบัญชี</p></div>
+      <button class="btn" id="u-new">สร้างบัญชีชื่อผู้ใช้</button></div></div>
     <section class="band"><div class="wrap" style="padding-top:24px;padding-bottom:56px"><div id="set"></div></div></section>`;
   const host = $("#set", el);
+  $("#u-new", el).onclick = () => accountForm(() => draw().catch(fail));
   async function draw() {
-    const [rooms, users] = await Promise.all([getRooms(true), store.list("users")]);
-    users.sort((a, b) => (a.role === "staff" ? 0 : 1) - (b.role === "staff" ? 0 : 1) || (a.name || "").localeCompare(b.name || "", "th"));
+    const users = (await store.list("users")).sort((a, b) => (a.role === "staff" ? 0 : 1) - (b.role === "staff" ? 0 : 1) || (a.name || "").localeCompare(b.name || "", "th"));
+    const me = state.user.uid;
     host.innerHTML = `
-      <div class="toolbar"><h2 style="font-size:21px">ห้อง / สถานที่</h2><span class="spacer"></span>
-        ${rooms.length ? "" : `<button class="btn ghost" id="r-seed">เพิ่มห้องเริ่มต้น ${DEFAULT_ROOMS.length} ห้อง</button>`}<button class="btn" id="r-add">เพิ่มห้อง</button></div>
-      ${rooms.length ? `<div class="table-wrap"><table class="t"><thead><tr><th>ชื่อห้อง</th><th>อาคาร / สถานที่</th><th class="num">ที่นั่ง</th><th>สถานะ</th><th></th></tr></thead><tbody>
-        ${rooms.map((r) => `<tr data-id="${r.id}"><td><b>${esc(r.name)}</b>${r.note ? `<div class="muted">${esc(r.note)}</div>` : ""}</td><td>${esc(r.building)}</td><td class="num">${r.capacity || "–"}</td>
-          <td>${r.active !== false ? `<span class="st st-approved">เปิดให้จอง</span>` : `<span class="st st-cancelled">ปิดชั่วคราว</span>`}</td><td><div class="acts"><button class="btn ghost sm" data-edit>แก้ไข</button></div></td></tr>`).join("")}</tbody></table></div>`
-        : `<div class="empty">ยังไม่มีห้องในระบบ</div>`}
-      <div class="toolbar" style="margin-top:40px"><h2 style="font-size:21px">ผู้ใช้งาน</h2><span class="clip" id="u-count"></span><span class="spacer"></span>
-        <input class="inp sm" type="search" id="u-q" placeholder="ค้นหาชื่อหรืออีเมล" aria-label="ค้นหาผู้ใช้งาน" style="width:min(260px,100%)">
-        <select class="inp sm" id="u-role" aria-label="กรองตามสิทธิ์"><option value="">ทุกสิทธิ์</option><option value="staff">พนักงานโสต</option><option value="user">ผู้ขอใช้บริการ</option></select></div>
-      <p class="note info" style="margin:0 0 12px">ผู้ใช้จะปรากฏในรายการนี้หลังจากเข้าสู่ระบบด้วย Google ครั้งแรก จากนั้นจึงกำหนดให้เป็น “พนักงานโสต” ได้</p>
-      <div class="table-wrap"><table class="t"><thead><tr><th>ชื่อ</th><th>อีเมล</th><th>สิทธิ์</th></tr></thead><tbody>
-        ${users.map((u) => `<tr data-u="${esc(`${u.name || ""} ${u.email || ""}`.toLowerCase())}" data-ur="${u.role === "staff" ? "staff" : "user"}"><td>${esc(u.name)}</td><td>${esc(u.email)}</td><td><select class="inp sm" data-role="${u.id || u.uid}" ${(u.id || u.uid) === state.user.uid ? "disabled title='เปลี่ยนสิทธิ์ของตัวเองไม่ได้'" : ""}>
-          <option value="user"${u.role !== "staff" ? " selected" : ""}>ผู้ขอใช้บริการ</option><option value="staff"${u.role === "staff" ? " selected" : ""}>พนักงานโสต</option></select></td></tr>`).join("")}</tbody></table></div>
+      <div class="toolbar"><h2 style="font-size:21px">ผู้ใช้งาน</h2><span class="clip" id="u-count"></span><span class="spacer"></span>
+        <input class="inp sm" type="search" id="u-q" placeholder="ค้นหาชื่อ อีเมล ชื่อผู้ใช้ หรือห้อง" aria-label="ค้นหาผู้ใช้งาน" style="width:min(260px,100%)" value="${esc(userState.q)}">
+        <select class="inp sm" id="u-type" aria-label="กรองตามประเภท"><option value="">ทุกประเภท</option><option value="teacher">ครู / บุคลากร</option><option value="student">นักเรียน</option><option value="none">ยังไม่ระบุ</option></select>
+        <select class="inp sm" id="u-role" aria-label="กรองตามสิทธิ์"><option value="">ทุกสิทธิ์</option><option value="staff">พนักงานโสต</option><option value="user">ผู้ใช้ทั่วไป</option></select>
+        <select class="inp sm" id="u-st" aria-label="กรองตามสถานะ"><option value="">ทุกสถานะ</option><option value="active">ใช้งานได้</option><option value="banned">ถูกระงับ</option></select></div>
+      <p class="note info" style="margin:0 0 12px">ผู้ใช้ Google จะปรากฏหลังเข้าสู่ระบบครั้งแรก ส่วนบัญชีชื่อผู้ใช้ สมัครเองได้ที่หน้าแรกหรือพนักงานโสตสร้างให้ · <b>ระงับ</b> = เข้าใช้ไม่ได้จนกว่าจะยกเลิก · <b>ลบ</b> = ลบข้อมูลบัญชีออกจากระบบ</p>
+      <div class="table-wrap"><table class="t"><thead><tr><th>ชื่อ</th><th>บัญชี</th><th>ประเภท</th><th>สิทธิ์</th><th>สถานะ</th><th></th></tr></thead><tbody>
+        ${users.map((u) => { const id = u.id, self = id === me; return `<tr data-id="${id}" data-u="${esc(`${u.name || ""} ${u.email || ""} ${u.username || ""} ${u.classroom || ""} ${u.department || ""}`.toLowerCase())}" data-ur="${u.role === "staff" ? "staff" : "user"}" data-ut="${u.type || "none"}" data-us="${u.banned ? "banned" : "active"}" class="${u.banned ? "row-muted" : ""}">
+          <td><b>${esc(u.name) || "–"}</b><div class="muted">${esc(u.type === "student" ? [u.classroom, u.studentNo && "เลขที่ " + u.studentNo].filter(Boolean).join(" ") : u.department || "")}</div></td>
+          <td>${u.username ? `<span class="tag">ชื่อผู้ใช้</span> ${esc(u.username)}` : esc(u.email)}</td>
+          <td><select class="inp sm" data-type aria-label="ประเภท"><option value=""${u.type ? "" : " selected"}>ยังไม่ระบุ</option><option value="teacher"${u.type === "teacher" ? " selected" : ""}>ครู / บุคลากร</option><option value="student"${u.type === "student" ? " selected" : ""}>นักเรียน</option></select></td>
+          <td><select class="inp sm" data-role aria-label="สิทธิ์" ${self ? "disabled title='เปลี่ยนสิทธิ์ของตัวเองไม่ได้'" : ""}><option value="user"${u.role !== "staff" ? " selected" : ""}>ผู้ใช้ทั่วไป</option><option value="staff"${u.role === "staff" ? " selected" : ""}>พนักงานโสต</option></select></td>
+          <td>${u.banned ? `<span class="st st-rejected">ถูกระงับ</span>` : `<span class="st st-approved">ใช้งานได้</span>`}</td>
+          <td><div class="acts">${self ? `<span class="clip">บัญชีของคุณ</span>` : `<button class="btn ghost sm" data-ban>${u.banned ? "ยกเลิกระงับ" : "ระงับ"}</button><button class="btn danger sm" data-del>ลบ</button>`}</div></td></tr>`; }).join("")}
+      </tbody></table></div>
       <div class="empty" id="u-empty" hidden style="padding:28px 16px">ไม่พบผู้ใช้งานที่ตรงกับคำค้น</div>`;
-    const seed = $("#r-seed", host);
-    if (seed) seed.onclick = async () => {
-      try { for (const [i, r] of DEFAULT_ROOMS.entries()) await store.add("rooms", { ...r, active: true, order: i }); toast("เพิ่มห้องเริ่มต้นแล้ว"); draw().catch(fail); } catch (e) { fail(e); }
-    };
-    $("#r-add", host).onclick = () => roomForm(null, rooms.length, () => draw().catch(fail));
-    $$("tr[data-id]", host).forEach((tr) => ($("[data-edit]", tr).onclick = () => roomForm(rooms.find((r) => r.id === tr.dataset.id), 0, () => draw().catch(fail))));
-    // ค้นหา / กรองผู้ใช้งาน (กรองในหน้า ไม่ต้องโหลดข้อมูลใหม่)
-    const uq = $("#u-q", host), ur = $("#u-role", host), uc = $("#u-count", host);
+    const uq = $("#u-q", host), ur = $("#u-role", host), ut = $("#u-type", host), us = $("#u-st", host);
+    ur.value = userState.role; ut.value = userState.type; us.value = userState.st;
     const filterUsers = () => {
-      const q = uq.value.trim().toLowerCase(), r = ur.value;
+      Object.assign(userState, { q: uq.value, role: ur.value, type: ut.value, st: us.value });
+      const q = uq.value.trim().toLowerCase();
       let shown = 0;
       $$("tr[data-u]", host).forEach((tr) => {
-        const ok = (!q || tr.dataset.u.includes(q)) && (!r || tr.dataset.ur === r);
+        const ok = (!q || tr.dataset.u.includes(q)) && (!ur.value || tr.dataset.ur === ur.value) && (!ut.value || tr.dataset.ut === ut.value) && (!us.value || tr.dataset.us === us.value);
         tr.hidden = !ok;
         if (ok) shown++;
       });
-      uc.textContent = q || r ? `พบ ${shown} จาก ${users.length} คน` : `${users.length} คน`;
+      $("#u-count", host).textContent = q || ur.value || ut.value || us.value ? `พบ ${shown} จาก ${users.length} คน` : `${users.length} คน`;
       $("#u-empty", host).hidden = shown > 0;
     };
-    uq.oninput = filterUsers;
-    ur.onchange = filterUsers;
+    [uq, ur, ut, us].forEach((x) => (x.oninput = x.onchange = filterUsers));
     filterUsers();
-    $$("[data-role]", host).forEach((s) => (s.onchange = async () => {
-      try { await store.update("users", s.dataset.role, { role: s.value }); s.closest("tr").dataset.ur = s.value; toast("อัปเดตสิทธิ์แล้ว"); } catch (e) { fail(e); draw().catch(() => {}); }
-    }));
+    $$("tr[data-id]", host).forEach((tr) => {
+      const u = users.find((x) => x.id === tr.dataset.id);
+      $("[data-role]", tr).onchange = async (e) => {
+        try { await store.update("users", u.id, { role: e.target.value }); tr.dataset.ur = e.target.value; toast("อัปเดตสิทธิ์แล้ว"); } catch (err) { fail(err); draw().catch(() => {}); }
+      };
+      $("[data-type]", tr).onchange = async (e) => {
+        try { await store.update("users", u.id, { type: e.target.value }); tr.dataset.ut = e.target.value || "none"; toast("อัปเดตประเภทแล้ว"); } catch (err) { fail(err); draw().catch(() => {}); }
+      };
+      const ban = $("[data-ban]", tr);
+      if (ban) ban.onclick = async () => {
+        const next = !u.banned;
+        if (next && !confirm(`ระงับบัญชี “${u.name}”? ผู้ใช้จะเข้าสู่ระบบไม่ได้จนกว่าจะยกเลิกการระงับ และคำขอที่รออนุมัติจะถูกยกเลิก`)) return;
+        try {
+          await store.update("users", u.id, { banned: next, bannedAt: next ? Date.now() : null });
+          if (next) for (const l of await store.query("loans", { eq: ["uid", u.id] })) if (l.status === "pending") await store.update("loans", l.id, { status: "cancelled", reason: "บัญชีถูกระงับ", updatedAt: Date.now() });
+          toast(next ? "ระงับบัญชีแล้ว" : "ยกเลิกการระงับแล้ว"); refreshPending(); draw().catch(fail);
+        } catch (err) { fail(err); }
+      };
+      const del = $("[data-del]", tr);
+      if (del) del.onclick = () => deleteAccount(u, () => draw().catch(fail));
+    });
   }
   await draw();
 }
-
-function roomForm(rec, order, done) {
-  const r = rec || { name: "", building: "", capacity: "", note: "", active: true, order };
-  const m = openModal(rec ? "แก้ไขห้อง" : "เพิ่มห้อง", `<form class="form" id="rf" novalidate>
-      <label class="f full"><span>ชื่อห้อง *</span><input class="inp" name="name" required maxlength="120" value="${esc(r.name)}"></label>
-      <label class="f"><span>อาคาร / สถานที่</span><input class="inp" name="building" maxlength="80" value="${esc(r.building)}"></label>
-      <label class="f"><span>จำนวนที่นั่ง</span><input class="inp" name="capacity" type="number" min="0" value="${esc(r.capacity || "")}"></label>
-      <label class="f full"><span>รายละเอียด</span><input class="inp" name="note" maxlength="200" value="${esc(r.note)}"></label>
-      <label class="f full"><span>สถานะ</span><select class="inp" name="active"><option value="1"${r.active !== false ? " selected" : ""}>เปิดให้จอง</option><option value="0"${r.active === false ? " selected" : ""}>ปิดชั่วคราว</option></select></label>
-      <div class="full form-actions">${rec ? `<button type="button" class="btn danger" data-del style="margin-right:auto">ลบห้อง</button>` : ""}<button type="button" class="btn ghost" data-x>ยกเลิก</button><button class="btn" type="submit">บันทึก</button></div></form>`);
-  const f = $("#rf", m.el);
+async function deleteAccount(u, done) {
+  let loans = [];
+  try { loans = await store.query("loans", { eq: ["uid", u.id] }); } catch (e) { return fail(e); }
+  const out = loans.filter((l) => l.status === "approved");
+  const m = openModal("ลบบัญชี", `<p style="margin-top:0">ลบบัญชี <b>${esc(u.name)}</b> (${esc(u.username || u.email)}) ออกจากระบบ</p>
+    ${out.length ? `<p class="note warn">บัญชีนี้ยังยืมอุปกรณ์อยู่ ${out.length} รายการ ควรรับคืนให้เรียบร้อยก่อนลบ</p>` : ""}
+    <label class="f check"><input type="checkbox" id="del-hist"> ลบประวัติการยืมทั้งหมดของบัญชีนี้ด้วย (${loans.length} รายการ — สถิติย้อนหลังจะลดลง)</label>
+    <p class="note info">ถ้าไม่ลบประวัติ รายการยืมเดิมยังอยู่ในสถิติ และคำขอที่รออนุมัติจะถูกยกเลิก<br>
+      หากผู้ใช้เข้าสู่ระบบอีกครั้ง จะกลับมาเป็นผู้ใช้ใหม่ — <b>ถ้าไม่ต้องการให้เข้าใช้อีก ให้กด “ระงับ” แทนการลบ</b></p>
+    <div class="form-actions"><button class="btn ghost" data-x>ยกเลิก</button><button class="btn danger" data-ok>ลบบัญชี</button></div>`);
   $("[data-x]", m.el).onclick = m.dismiss;
-  const del = $("[data-del]", m.el);
-  if (del) del.onclick = async () => {
-    if (!confirm(`ลบห้อง “${r.name}”? (รายการจองเดิมยังอยู่ในสถิติ)`)) return;
-    try { await store.remove("rooms", r.id); m.close(); toast("ลบแล้ว"); done(); } catch (e) { fail(e); }
+  $("[data-ok]", m.el).onclick = async (e) => {
+    const hist = $("#del-hist", m.el).checked;
+    e.target.disabled = true;
+    try {
+      for (const l of loans) {
+        if (hist) { if (l.calendarEventId) { await calReady(); await calRemove(l); } await store.remove("loans", l.id); await store.remove("loanContacts", l.id).catch(() => {}); }
+        else if (l.status === "pending") await store.update("loans", l.id, { status: "cancelled", reason: "บัญชีถูกลบ", updatedAt: Date.now() });
+      }
+      await store.remove("users", u.id);
+      m.close(); toast(hist ? "ลบบัญชีและประวัติแล้ว" : "ลบบัญชีแล้ว"); refreshPending(); done();
+    } catch (err) { e.target.disabled = false; fail(err); }
   };
+}
+function accountForm(done) {
+  const m = openModal("สร้างบัญชีชื่อผู้ใช้", `<form class="form" id="af" novalidate>
+      <p class="note info full" style="margin:0">สำหรับนักเรียนหรือบุคลากรที่ไม่มีอีเมล สร้างแล้วแจ้งชื่อผู้ใช้และรหัสผ่านให้เจ้าของบัญชี</p>
+      <label class="f full"><span>ชื่อ-นามสกุล *</span><input class="inp" name="name" required maxlength="80"></label>
+      <fieldset class="full"><legend>ประเภท *</legend>${typeChips("type", "student")}</fieldset>
+      ${typeFields({ type: "student" })}
+      <label class="f"><span>ชื่อผู้ใช้ * <small>(a–z 0–9 . _ -)</small></span><input class="inp" name="username" required maxlength="30" autocapitalize="none" spellcheck="false" autocomplete="off"></label>
+      <label class="f"><span>รหัสผ่าน * <small>(อย่างน้อย 6 ตัว)</small></span><input class="inp" name="password" required minlength="6" autocomplete="new-password"></label>
+      <div class="full form-actions"><button type="button" class="btn ghost" data-x>ยกเลิก</button><button class="btn" type="submit">สร้างบัญชี</button></div></form>`);
+  const f = $("#af", m.el);
+  wireTypeFields(f);
+  $("[data-x]", m.el).onclick = m.dismiss;
   f.onsubmit = async (e) => {
     e.preventDefault();
     if (!f.reportValidity()) return;
-    const v = Object.fromEntries(new FormData(f));
-    const data = { name: v.name.trim(), building: v.building.trim(), capacity: Number(v.capacity || 0), note: v.note.trim(), active: v.active === "1", order: r.order ?? 0 };
-    try { if (rec) await store.update("rooms", r.id, data); else await store.add("rooms", data); m.close(); toast("บันทึกแล้ว"); done(); } catch (err) { fail(err); }
+    const username = f.elements.username.value.trim().toLowerCase();
+    if (!USERNAME_RE.test(username)) return toast("ชื่อผู้ใช้ใช้ได้เฉพาะ a–z, 0–9, จุด และขีด ยาว 3–30 ตัว", true);
+    const btn = $("button[type=submit]", f); btn.disabled = true;
+    try { await store.createAccount({ username, password: f.elements.password.value, profile: readProfile(f) }); m.close(); toast(`สร้างบัญชี “${username}” แล้ว`); done(); }
+    catch (err) { btn.disabled = false; fail(err); }
   };
 }
 
@@ -896,13 +1251,13 @@ function roomForm(rec, order, done) {
     await store.init();
   } catch (e) {
     console.error(e);
-    view.innerHTML = `<div class="wrap"><div class="empty"><p class="note err" style="display:inline-block">เชื่อมต่อ Firebase ไม่สำเร็จ: ${esc(friendly(e))}</p></div></div>`;
+    view.innerHTML = `<div class="wrap"><div class="empty"><p class="note err" style="display:inline-block">เชื่อมต่อระบบไม่สำเร็จ: ${esc(friendly(e))}</p></div></div>`;
     return;
   }
   window.addEventListener("hashchange", render);
   store.onAuth(async (user, err) => {
-    if (err) fail(err);
-    state.user = user; state.rooms = null; state.pending = 0;
+    if (err) state.authMsg = friendly(err);
+    state.user = user; state.items = null; state.pending = 0;
     renderDemoBar();
     if (user) await refreshPending();
     render();

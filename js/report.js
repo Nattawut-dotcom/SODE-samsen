@@ -106,62 +106,62 @@ async function download(doc, filename) {
 const H = "EDEDED";
 
 // ------------------------------------------------------------
-//  รายงานสถิติการใช้บริการ
+//  รายงานสถิติการยืม-คืนอุปกรณ์
 // ------------------------------------------------------------
-export async function exportBookingReport({ from, to, rows, stats }) {
+export async function exportLoanReport({ from, to, rows, stats, typeLabel = "ทุกคน" }) {
   const { P, cell, row, table, doc } = kit();
-  const hr = (n) => n.toLocaleString("th-TH", { maximumFractionDigits: 1 });
-  const pct = (v) => (stats.total ? ((v / stats.total) * 100).toFixed(1) : "0.0");
+  const dec = (n) => n.toLocaleString("th-TH", { maximumFractionDigits: 1 });
+  const longD = (d) => thDate(d, { day: "numeric", month: "long", year: "numeric" });
   const out = [
-    P(`รายงานสถิติการให้บริการ${CONFIG.unitName}`, { bold: true, size: 36, align: "center" }),
+    P(`รายงานสถิติการยืม-คืนอุปกรณ์ ${CONFIG.unitName}`, { bold: true, size: 36, align: "center" }),
     P(CONFIG.schoolName, { bold: true, size: 36, align: "center" }),
-    P(`ระหว่างวันที่ ${thDate(from, { day: "numeric", month: "long", year: "numeric" })} ถึง ${thDate(to, { day: "numeric", month: "long", year: "numeric" })}`, { align: "center", after: 200 }),
-    P(`ในช่วงเวลาดังกล่าว ${CONFIG.unitName}ให้บริการห้องและโสตทัศนูปกรณ์รวมทั้งสิ้น ${num(stats.total)} ครั้ง คิดเป็นเวลาใช้งานรวม ${hr(stats.hours)} ชั่วโมง มีผู้เข้าร่วมรวม ${num(stats.attendees)} คน จาก ${stats.byDept.size} หน่วยงาน รายละเอียดดังนี้`, { indent: true, after: 160 }),
+    P(`ระหว่างวันที่ ${longD(from)} ถึง ${longD(to)}${typeLabel !== "ทุกคน" ? ` (เฉพาะ${typeLabel})` : ""}`, { align: "center", after: 200 }),
+    P(`ในช่วงเวลาดังกล่าว มีการยืมอุปกรณ์รวมทั้งสิ้น ${num(stats.total)} ครั้ง จำนวนอุปกรณ์ ${num(stats.units)} ชิ้น แบ่งเป็นครู/บุคลากร ${num(stats.teacher)} ครั้ง และนักเรียน ${num(stats.student)} ครั้ง ระยะเวลายืมเฉลี่ย ${dec(stats.avgDays)} วัน คืนล่าช้า ${num(stats.lateReturns)} รายการ และยังไม่คืนเกินกำหนด ${num(stats.overdueNow)} รายการ รายละเอียดดังนี้`, { indent: true, after: 160 }),
   ];
   let no = 0;
-  const countTable = (title, entries, head, note) => {
+  const hc = (t, w) => cell(t, { bold: true, align: "center", shade: H, w });
+  const countTable = (title, entries, head, unit, base) => {
     out.push(P(`ตารางที่ ${++no} ${title}`, { bold: true, before: 200, after: 80 }));
+    const pct = (v) => (base ? ((v / base) * 100).toFixed(1) : "0.0");
     const body = entries.length
       ? entries.map(([k, v], i) => row([cell(i + 1, { align: "center" }), cell(k), cell(num(v), { align: "center" }), cell(pct(v), { align: "center" })]))
       : [row([cell("ไม่มีข้อมูล", { span: 4, align: "center" })])];
-    out.push(table([
-      row([cell("ที่", { bold: true, align: "center", shade: H, w: 8 }), cell(head, { bold: true, align: "center", shade: H, w: 60 }), cell("จำนวน (ครั้ง)", { bold: true, align: "center", shade: H, w: 16 }), cell("ร้อยละ", { bold: true, align: "center", shade: H, w: 16 })], true),
-      ...body,
-    ]));
-    if (note) out.push(P(note, { size: 26 }));
+    out.push(table([row([hc("ที่", 8), hc(head, 60), hc(`จำนวน (${unit})`, 16), hc("ร้อยละ", 16)], true), ...body]));
   };
-  const periodTable = (title, keys, label, cnt, hrs) => {
+  const periodTable = (title, head, keys, label, cnt, units) => {
     out.push(P(`ตารางที่ ${++no} ${title}`, { bold: true, before: 200, after: 80 }));
     out.push(table([
-      row([cell(title.includes("สัปดาห์") ? "สัปดาห์" : "เดือน", { bold: true, align: "center", shade: H, w: 56 }), cell("จำนวน (ครั้ง)", { bold: true, align: "center", shade: H, w: 22 }), cell("เวลาใช้งาน (ชั่วโมง)", { bold: true, align: "center", shade: H, w: 22 })], true),
-      ...keys.map((k) => row([cell(label(k)), cell(num(cnt.get(k)), { align: "center" }), cell(hr(hrs.get(k)), { align: "center" })])),
-      row([cell("รวม", { bold: true, align: "center" }), cell(num(stats.total), { bold: true, align: "center" }), cell(hr(stats.hours), { bold: true, align: "center" })]),
+      row([hc(head, 56), hc("จำนวน (ครั้ง)", 22), hc("อุปกรณ์ (ชิ้น)", 22)], true),
+      ...(keys.length ? keys.map((k) => row([cell(label(k)), cell(num(cnt.get(k)), { align: "center" }), cell(num(units.get(k)), { align: "center" })])) : [row([cell("ไม่มีข้อมูล", { span: 3, align: "center" })])]),
+      row([cell("รวม", { bold: true, align: "center" }), cell(num(stats.total), { bold: true, align: "center" }), cell(num(stats.units), { bold: true, align: "center" })]),
     ]));
   };
-  periodTable("จำนวนการให้บริการรายเดือน", [...stats.byMonth.keys()].sort(), monthLabel, stats.byMonth, stats.hoursByMonth);
-  periodTable("จำนวนการให้บริการรายสัปดาห์", [...stats.byWeek.keys()].sort(), weekLabel, stats.byWeek, stats.hoursByWeek);
-  countTable("จำนวนการให้บริการจำแนกตามสถานที่ขอรับบริการ", sortedEntries(stats.byRoom), "สถานที่");
-  countTable("จำนวนการให้บริการจำแนกตามหน่วยงาน", sortedEntries(stats.byDept), "หน่วยงาน");
-  countTable("จำนวนการให้บริการจำแนกตามลักษณะการใช้", sortedEntries(stats.byPurpose), "ลักษณะการใช้");
-  const multi = "หมายเหตุ: หนึ่งรายการเลือกได้มากกว่าหนึ่งข้อ ร้อยละคิดจากจำนวนครั้งที่ให้บริการทั้งหมด";
-  countTable("บริการที่ขอรับ", sortedEntries(stats.byService), "บริการ", multi);
-  countTable("อุปกรณ์ที่ใช้", sortedEntries(stats.byEquip), "อุปกรณ์", multi);
+  periodTable("จำนวนการยืมรายเดือน", "เดือน", [...stats.byMonth.keys()].sort(), monthLabel, stats.byMonth, stats.unitsByMonth);
+  periodTable("จำนวนการยืมรายสัปดาห์", "สัปดาห์", [...stats.byWeek.keys()].sort(), weekLabel, stats.byWeek, stats.unitsByWeek);
+  countTable("จำนวนการยืมจำแนกตามประเภทผู้ยืม", sortedEntries(stats.byType), "ประเภทผู้ยืม", "ครั้ง", stats.total);
+  countTable("จำนวนอุปกรณ์ที่ถูกยืมจำแนกตามหมวดหมู่", sortedEntries(stats.byCategory), "หมวดหมู่", "ชิ้น", stats.units);
+  countTable("จำนวนอุปกรณ์ที่ถูกยืมจำแนกตามรายการ", sortedEntries(stats.byItem), "อุปกรณ์", "ชิ้น", stats.units);
+  if (stats.teacher) countTable("การยืมของครู/บุคลากร จำแนกตามหน่วยงาน", sortedEntries(stats.byDept), "หน่วยงาน", "ครั้ง", stats.teacher);
+  if (stats.student) countTable("การยืมของนักเรียน จำแนกตามชั้น/ห้อง", sortedEntries(stats.byClass), "ชั้น / ห้อง", "ครั้ง", stats.student);
+  countTable("จำนวนการยืมจำแนกตามวัตถุประสงค์", sortedEntries(stats.byPurpose), "วัตถุประสงค์", "ครั้ง", stats.total);
 
-  out.push(P(`ตารางที่ ${++no} รายละเอียดการให้บริการ`, { bold: true, before: 200, after: 80 }));
+  out.push(P(`ตารางที่ ${++no} รายละเอียดการยืม`, { bold: true, before: 200, after: 80 }));
   const hs = (t, w) => cell(t, { bold: true, align: "center", shade: H, w, size: 26 });
+  const sd = (d) => thDate(d, { day: "numeric", month: "short", year: "2-digit" });
+  const stTxt = (l) => (l.status === "returned" ? `คืน ${sd(l.returnedDate)}` : l.dueDate < new Date().toISOString().slice(0, 10) ? "ยังไม่คืน (เกินกำหนด)" : "กำลังยืม");
   out.push(table([
-    row([hs("ที่", 6), hs("วันที่ / เวลา", 17), hs("รายการ", 24), hs("สถานที่", 18), hs("หน่วยงาน", 17), hs("บริการ / อุปกรณ์", 18)], true),
-    ...(rows.length ? rows.map((b, i) => row([
-      cell(i + 1, { align: "center", size: 24 }), cell(`${thDate(b.date, { day: "numeric", month: "short", year: "2-digit" })}\n${b.start}–${b.end}`, { size: 24 }),
-      cell(b.title, { size: 24 }), cell(b.roomName, { size: 24 }), cell(b.department, { size: 24 }),
-      cell([...(b.services || []), ...(b.equipment || [])].join(", ") || "-", { size: 24 }),
-    ])) : [row([cell("ไม่มีข้อมูล", { span: 6, align: "center" })])]),
+    row([hs("ที่", 6), hs("วันที่ยืม – กำหนดคืน", 17), hs("ผู้ยืม", 22), hs("อุปกรณ์", 33), hs("สถานะ", 22)], true),
+    ...(rows.length ? rows.map((l, i) => row([
+      cell(i + 1, { align: "center", size: 24 }), cell(`${sd(l.borrowDate)}\n– ${sd(l.dueDate)}`, { size: 24 }),
+      cell(`${l.borrowerName}\n${l.borrowerType === "student" ? `นักเรียน ${l.classroom || ""}` : l.department || "ครู/บุคลากร"}`, { size: 24 }),
+      cell((l.items || []).map((x) => `${x.name} ×${x.qty}`).join("\n"), { size: 24 }), cell(stTxt(l), { size: 24 }),
+    ])) : [row([cell("ไม่มีข้อมูล", { span: 5, align: "center" })])]),
   ]));
 
   out.push(P("", { before: 500 }), P("ลงชื่อ ............................................................ ผู้รายงาน", { align: "right" }), P("(............................................................)          ", { align: "right" }),
     P(`${CONFIG.unitName}          `, { align: "right" }), P(`ข้อมูล ณ วันที่ ${new Date().toLocaleDateString("th-TH", { day: "numeric", month: "long", year: "numeric" })}`, { size: 26, before: 200 }));
 
-  return download(doc(out), `รายงานสถิติงานโสตฯ_${from}_ถึง_${to}.docx`);
+  return download(doc(out), `รายงานการยืมอุปกรณ์_${from}_ถึง_${to}.docx`);
 }
 
 // ------------------------------------------------------------
