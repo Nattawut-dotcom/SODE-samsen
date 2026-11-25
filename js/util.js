@@ -56,6 +56,9 @@ export const mondayOf = (s) => {
 export const typeLabel = (t) => USER_TYPES[t] || "ไม่ระบุ";
 export const shortType = (t) => (t === "student" ? "นักเรียน" : t === "teacher" ? "ครู" : "–");
 export const catIcon = (name) => (CATEGORIES.find((c) => c.name === name) || { icon: name === "กล้องและอุปกรณ์ถ่ายภาพ" ? "📷" : "📦" }).icon;
+// ไอคอนตามประเภทอุปกรณ์ (ถ้ามี) ไม่งั้นใช้ไอคอนของหมวด
+const KIND_ICONS = { flash: "⚡️" };
+export const itemIcon = (it) => KIND_ICONS[it?.kind] || catIcon(it?.category);
 export const catOrder = (name) => {
   const i = CATEGORIES.findIndex((c) => c.name === name);
   return i < 0 ? 999 : i;

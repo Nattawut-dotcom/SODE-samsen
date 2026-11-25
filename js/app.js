@@ -2,7 +2,7 @@ import { CONFIG, DEPARTMENTS, PURPOSES, USER_TYPES, CATEGORIES, CONDITIONS, KIND
 import { store, isDemo, USERNAME_RE } from "./store.js";
 import {
   $, $$, esc, pad, ymd, parseYmd, today, addDays, daysBetween, thDate, thDateLong, thShort, money, num, fiscalYearOf, fiscalRange, fiscalLabel,
-  mondayOf, typeLabel, shortType, catIcon, catOrder, LOAN_STATUS, ITEM_STATUS, isOverdue, loanState, ACTIVE, loanUnits, itemsText,
+  mondayOf, typeLabel, shortType, catIcon, itemIcon, catOrder, LOAN_STATUS, ITEM_STATUS, isOverdue, loanState, ACTIVE, loanUnits, itemsText,
   loanOn, loanEnd, lineText, extrasText, itemStatus, holdIn, holdOn, HOLD_KINDS, availableIn, computeStats, sortedEntries, monthShort, weekLabel, inAppBrowser,
 } from "./util.js";
 import { exportLoanReport, exportBudgetReport } from "./report.js";
@@ -390,7 +390,7 @@ async function home(el) {
       </div>
       <div class="card" style="margin-bottom:16px"><h2>อุปกรณ์ที่ถูกยืมอยู่ขณะนี้</h2><p class="sub">${outNow.length ? `${outNow.length} รายการ เรียงตามกำหนดคืน` : "ไม่มีอุปกรณ์ที่ถูกยืมอยู่"}</p>
         ${outNow.length ? loanTable(outNow, { showStatus: true }) : ""}
-        ${heldNow.length ? `<div class="held-list"><div class="held-h">อุปกรณ์ที่โสตใช้งาน / ไม่ว่าง</div>${heldNow.map(({ it, s }) => `<div class="held-item"><span>${catIcon(it.category)}</span><b>${esc(it.name)}</b>${s.held < s.qty ? ` <span class="muted">${s.held}/${s.qty} ชิ้น</span>` : ""}
+        ${heldNow.length ? `<div class="held-list"><div class="held-h">อุปกรณ์ที่โสตใช้งาน / ไม่ว่าง</div>${heldNow.map(({ it, s }) => `<div class="held-item"><span>${itemIcon(it)}</span><b>${esc(it.name)}</b>${s.held < s.qty ? ` <span class="muted">${s.held}/${s.qty} ชิ้น</span>` : ""}
           <span class="st ${ITEM_STATUS[s.hold.kind].cls}">${HOLD_KINDS[s.hold.kind]}</span><span class="muted">${[s.hold.note && esc(s.hold.note), s.hold.until && "ถึง " + thShort(s.hold.until)].filter(Boolean).join(" · ")}</span></div>`).join("")}</div>` : ""}</div>
       <div class="home-grid">
         <div class="card" id="cal-card"></div>
@@ -595,7 +595,7 @@ function itemCard(it, s) {
   const h = s.holders[0];
   return `<div class="icard ${s.key}" data-id="${it.id}" tabindex="0" role="button" aria-label="${esc(it.name)} ${ITEM_STATUS[s.key].label}">
     ${it.thumb ? `<div class="icard-photo"><img src="${it.thumb}" alt="" loading="lazy"></div>` : ""}
-    <div class="icard-top"><span class="icard-ico">${catIcon(it.category)}</span>${itemBadge(s)}</div>
+    <div class="icard-top"><span class="icard-ico">${itemIcon(it)}</span>${itemBadge(s)}</div>
     <h3>${esc(it.name)}</h3>
     <div class="muted">${[it.model, it.code, it.location].filter(Boolean).map(esc).join(" · ") || "&nbsp;"}</div>
     <div class="icard-row"><span>ว่าง <b>${s.free}</b> / ${s.qty} ${nosOf(it).length ? "ชิ้น (มีหมายเลข)" : "ชิ้น"}</span>${s.pend ? `<span class="st st-pending">รออนุมัติ ${s.pend}</span>` : ""}</div>
@@ -619,7 +619,7 @@ async function itemDetail(it, s, onChange) {
   const busy = new Set(current.filter((l) => l.status === "approved").flatMap((l) => lineOf(l).nos || []));
   const m = openModal(it.name, `
     ${photo || it.thumb ? `<div class="detail-photo"><img src="${photo || it.thumb}" alt="รูป ${esc(it.name)}"></div>` : ""}
-    <div class="detail-top"><span class="icard-ico">${catIcon(it.category)}</span>${itemBadge(s)} <span class="clip">ว่าง ${s.free}/${s.qty} ชิ้น${s.pend ? ` · รออนุมัติ ${s.pend}` : ""}</span></div>
+    <div class="detail-top"><span class="icard-ico">${itemIcon(it)}</span>${itemBadge(s)} <span class="clip">ว่าง ${s.free}/${s.qty} ชิ้น${s.pend ? ` · รออนุมัติ ${s.pend}` : ""}</span></div>
     <dl class="dl"><dt>ชื่อรุ่น</dt><dd>${esc(it.model) || "–"}</dd><dt>หมวดหมู่</dt><dd>${esc(it.category)}${KINDS[kindOf(it)] && kindOf(it) ? ` · ${KINDS[kindOf(it)]}` : ""}</dd>
       <dt>รหัส</dt><dd>${esc(it.code) || "–"}</dd>
       ${nos.length ? `<dt>หมายเลขชิ้น</dt><dd><div class="nos static">${nos.map((n) => `<span class="no${busy.has(n) ? " busy" : ""}" title="${busy.has(n) ? "ถูกยืมอยู่" : "ว่าง"}">#${esc(n)}</span>`).join("")}</div></dd>` : ""}
@@ -811,7 +811,7 @@ async function borrow(el, params) {
     const s = sel.get(it.id), av = avail(it), nos = nosOf(it);
     const fn = nos.length ? new Set(freeNos(it)) : null;
     return `<div class="sel-row${s.qty ? "" : " warn"}" data-id="${it.id}">
-      <div class="sel-media">${it.thumb ? `<img src="${it.thumb}" alt="">` : `<span>${catIcon(it.category)}</span>`}</div>
+      <div class="sel-media">${it.thumb ? `<img src="${it.thumb}" alt="">` : `<span>${itemIcon(it)}</span>`}</div>
       <div class="pick-body"><b>${esc(it.name)}</b><span>${[it.model, it.code].filter(Boolean).map(esc).join(" · ")}${it.model || it.code ? " · " : ""}<span class="pick-av${av ? "" : " none"}">${av ? `ว่าง ${av}` : "ไม่ว่างในวันที่เลือก"}</span></span></div>
       ${nos.length ? "" : `<div class="stepper"><button type="button" data-d="-1" aria-label="ลดจำนวน" ${s.qty > 1 ? "" : "disabled"}>−</button><span>${s.qty}</span><button type="button" data-d="1" aria-label="เพิ่มจำนวน" ${s.qty < av ? "" : "disabled"}>+</button></div>`}
       <button type="button" class="icon-btn" data-rm aria-label="นำ ${esc(it.name)} ออก">✕</button>
@@ -1008,7 +1008,7 @@ async function showLoan(l, onChange) {
   const m = openModal("รายละเอียดการยืม", `<dl class="dl">
       <dt>สถานะ</dt><dd>${stBadge(l)}${l.reason ? ` <span style="color:var(--ink-2)">${esc(l.reason)}</span>` : ""}</dd>
       <dt>ผู้ยืม</dt><dd>${who(l)}${contact?.phone ? `<div><a href="tel:${esc(contact.phone)}">${esc(contact.phone)}</a></div>` : ""}</dd>
-      <dt>อุปกรณ์</dt><dd>${(l.items || []).map((x) => `${catIcon(x.category)} ${esc(x.name)}${x.model ? ` <span class="muted">${esc(x.model)}</span>` : ""}${x.code ? ` <span class="muted">(${esc(x.code)})</span>` : ""} ${x.nos?.length ? `· หมายเลข #${x.nos.map(esc).join(", #")}` : `× ${x.qty}`}`).join("<br>")}</dd>
+      <dt>อุปกรณ์</dt><dd>${(l.items || []).map((x) => `${itemIcon(x)} ${esc(x.name)}${x.model ? ` <span class="muted">${esc(x.model)}</span>` : ""}${x.code ? ` <span class="muted">(${esc(x.code)})</span>` : ""} ${x.nos?.length ? `· หมายเลข #${x.nos.map(esc).join(", #")}` : `× ${x.qty}`}`).join("<br>")}</dd>
       ${extrasText(l) ? `<dt>อุปกรณ์เสริม</dt><dd>${esc(extrasText(l))}</dd>` : ""}
       <dt>วันที่ยืม</dt><dd>${thDateLong(l.borrowDate)}</dd><dt>กำหนดคืน</dt><dd>${thDateLong(l.dueDate)}${isOverdue(l) ? ` <b style="color:var(--red)">(เกิน ${daysBetween(l.dueDate, today())} วัน)</b>` : ""}</dd>
       ${l.status === "returned" ? `<dt>คืนเมื่อ</dt><dd>${thDateLong(l.returnedDate)}${l.returnNote ? `<div class="muted">${esc(l.returnNote)}</div>` : ""}</dd>` : ""}
