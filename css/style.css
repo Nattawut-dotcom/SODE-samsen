@@ -431,6 +431,19 @@ label.f small, legend small { color: var(--ink-3); }
 .held-item { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 14px; }
 .held-item .muted { color: var(--ink-3); font-size: 12.5px; }
 
+/* แถบความว่างระดับหมวด */
+.igroup h2 { margin-bottom: 8px; }
+.catbar { margin-bottom: 14px; max-width: 560px; }
+.catbar-track { display: flex; height: 8px; background: var(--gray-bg); border-radius: 4px; overflow: hidden; }
+.catbar-track span { display: block; height: 100%; }
+.cb-free { background: var(--green); }
+.cb-out { background: #e07a00; }
+.cb-av { background: #7b61c9; }
+.cb-broken { background: #b8b8be; }
+.catbar-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 6px; font-size: 13px; color: var(--ink-2); align-items: center; }
+.catbar-legend b { color: var(--ink); }
+.catbar-legend i { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 5px; vertical-align: 0; }
+
 @media print {
   body { font-family: "TH Sarabun New", var(--font); font-size: 19px; }
   .nav, .footer, #demo-bar, .toolbar, .btn { display: none !important; }
