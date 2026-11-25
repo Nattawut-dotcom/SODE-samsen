@@ -375,6 +375,36 @@ label.f small, legend small { color: var(--ink-3); }
 .nav-me:hover { text-decoration: none; color: var(--ink); }
 @media (max-width: 600px) { .kpis { grid-template-columns: 1fr 1fr; gap: 10px; } .kpi { padding: 14px 16px; } .kpi .v { font-size: 26px; } .item { grid-template-columns: 60px 1fr; } .igrid { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); } .icard { padding: 13px; } .hero-login h1 { font-size: 34px; } }
 
+/* รูปอุปกรณ์ / ชุดกล้อง / หมายเลขชิ้น */
+.icard-photo { margin: -16px -16px 6px; aspect-ratio: 4 / 3; overflow: hidden; border-radius: var(--radius) var(--radius) 0 0; background: var(--bg-soft); }
+.icard-photo img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.detail-photo { margin: 0 0 14px; border-radius: 14px; overflow: hidden; background: var(--bg-soft); text-align: center; }
+.detail-photo img { max-width: 100%; max-height: 360px; object-fit: contain; display: block; margin: 0 auto; }
+.photo-field { display: flex; gap: 14px; align-items: center; }
+.photo-prev { width: 92px; height: 92px; border-radius: 14px; overflow: hidden; background: var(--bg-soft); display: grid; place-items: center; font-size: 34px; flex: none; }
+.photo-prev img { width: 100%; height: 100%; object-fit: cover; }
+.file-btn { cursor: pointer; margin-top: 6px; }
+.sel-row { display: grid; grid-template-columns: 52px 1fr auto auto; gap: 10px 12px; align-items: center; border: 1px solid var(--blue); background: #f5f9ff; border-radius: 14px; padding: 10px; margin-bottom: 8px; }
+.sel-row.warn { border-color: #f0c2c0; background: #fff8f8; }
+.sel-media { width: 52px; height: 52px; border-radius: 10px; overflow: hidden; background: #fff; display: grid; place-items: center; font-size: 26px; }
+.sel-media img { width: 100%; height: 100%; object-fit: cover; }
+.sel-row .icon-btn { width: 30px; height: 30px; font-size: 13px; background: #fff; }
+.sel-empty { border: 1.5px dashed var(--line); border-radius: 14px; padding: 18px; text-align: center; color: var(--ink-2); font-size: 14px; }
+.nos { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.nos-lb { font-size: 12.5px; color: var(--ink-2); margin-right: 2px; }
+.no { border: 1px solid var(--line); background: #fff; border-radius: 980px; padding: 4px 11px; font: inherit; font-size: 13px; cursor: pointer; font-variant-numeric: tabular-nums; }
+.no.on { background: var(--ink); color: #fff; border-color: var(--ink); }
+.no:disabled { opacity: 0.4; cursor: default; text-decoration: line-through; }
+.nos.static .no { cursor: default; background: var(--green-bg); color: var(--green); border-color: transparent; }
+.nos.static .no.busy { background: var(--red-bg); color: var(--red); }
+.kit { border: 1px solid var(--line-soft); background: var(--bg-soft); border-radius: 14px; padding: 14px; }
+.kit-h { font-weight: 600; margin-bottom: 10px; }
+.kit-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.kit-grid .inp { background-color: #fff; }
+.add-item .inp { border-style: dashed; color: var(--link); }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+@media (max-width: 600px) { .kit-grid { grid-template-columns: 1fr; } .sel-row { grid-template-columns: 44px 1fr auto; } .sel-row .stepper { grid-column: 2 / 3; justify-self: start; } .sel-media { width: 44px; height: 44px; } .photo-field { align-items: flex-start; } }
+
 @media print {
   body { font-family: "TH Sarabun New", var(--font); font-size: 19px; }
   .nav, .footer, #demo-bar, .toolbar, .btn { display: none !important; }
