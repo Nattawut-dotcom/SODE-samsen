@@ -55,7 +55,7 @@ export const mondayOf = (s) => {
 // ----- ผู้ใช้งาน -----
 export const typeLabel = (t) => USER_TYPES[t] || "ไม่ระบุ";
 export const shortType = (t) => (t === "student" ? "นักเรียน" : t === "teacher" ? "ครู" : "–");
-export const catIcon = (name) => (CATEGORIES.find((c) => c.name === name) || { icon: "📦" }).icon;
+export const catIcon = (name) => (CATEGORIES.find((c) => c.name === name) || { icon: name === "กล้องและอุปกรณ์ถ่ายภาพ" ? "📷" : "📦" }).icon;
 export const catOrder = (name) => {
   const i = CATEGORIES.findIndex((c) => c.name === name);
   return i < 0 ? 999 : i;

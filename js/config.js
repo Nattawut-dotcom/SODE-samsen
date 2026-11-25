@@ -70,7 +70,8 @@ export const USER_TYPES = { teacher: "ครู / บุคลากร", studen
 
 // หมวดหมู่อุปกรณ์ (เรียงตามลำดับที่แสดง — พนักงานโสตพิมพ์หมวดใหม่เพิ่มเองได้ในฟอร์มอุปกรณ์)
 export const CATEGORIES = [
-  { name: "กล้องและอุปกรณ์ถ่ายภาพ", icon: "📷" },
+  { name: "กล้อง", icon: "📷" },
+  { name: "อุปกรณ์ถ่ายภาพ", icon: "🔭" }, // เลนส์ แฟลช แบตเตอรี่ การ์ดหน่วยความจำ
   { name: "คอมพิวเตอร์และแท็บเล็ต", icon: "💻" },
   { name: "จอภาพและการนำเสนอ", icon: "📺" },
   { name: "เครื่องเสียงและไมโครโฟน", icon: "🎙️" },
@@ -87,12 +88,12 @@ export const CONDITIONS = ["พร้อมใช้งาน", "ชำรุด
 
 // อุปกรณ์ตัวอย่าง (ใช้ตอนกดปุ่ม "เพิ่มอุปกรณ์ตัวอย่าง" เมื่อยังไม่มีอุปกรณ์ในระบบ และในโหมดตัวอย่าง)
 export const DEFAULT_ITEMS = [
-  { name: "กล้องถ่ายภาพ DSLR", category: "กล้องและอุปกรณ์ถ่ายภาพ", kind: "camera", code: "CAM-01", quantity: 2 },
-  { name: "เลนส์ 18-55mm", category: "กล้องและอุปกรณ์ถ่ายภาพ", kind: "lens", code: "LENS-01", quantity: 2 },
-  { name: "แฟลช", category: "กล้องและอุปกรณ์ถ่ายภาพ", kind: "flash", code: "FL-01", quantity: 1 },
-  { name: "แบตเตอรี่กล้อง", category: "กล้องและอุปกรณ์ถ่ายภาพ", kind: "battery", code: "BAT", nos: ["1", "2", "3", "4"], quantity: 4 },
-  { name: "การ์ดหน่วยความจำ", category: "กล้องและอุปกรณ์ถ่ายภาพ", kind: "memory", code: "SD", nos: ["1", "2", "3"], quantity: 3 },
-  { name: "กล้องวิดีโอ", category: "กล้องและอุปกรณ์ถ่ายภาพ", code: "VDO-01", quantity: 1 },
+  { name: "กล้องถ่ายภาพ DSLR", category: "กล้อง", kind: "camera", code: "CAM-01", quantity: 2 },
+  { name: "เลนส์ 18-55mm", category: "อุปกรณ์ถ่ายภาพ", kind: "lens", code: "LENS-01", quantity: 2 },
+  { name: "แฟลช", category: "อุปกรณ์ถ่ายภาพ", kind: "flash", code: "FL-01", quantity: 1 },
+  { name: "แบตเตอรี่กล้อง", category: "อุปกรณ์ถ่ายภาพ", kind: "battery", code: "BAT", nos: ["1", "2", "3", "4"], quantity: 4 },
+  { name: "การ์ดหน่วยความจำ", category: "อุปกรณ์ถ่ายภาพ", kind: "memory", code: "SD", nos: ["1", "2", "3"], quantity: 3 },
+  { name: "กล้องวิดีโอ", category: "กล้อง", code: "VDO-01", quantity: 1 },
   { name: "Notebook", category: "คอมพิวเตอร์และแท็บเล็ต", code: "NB-01", quantity: 3 },
   { name: "Apple TV", category: "จอภาพและการนำเสนอ", code: "ATV-01", quantity: 2 },
   { name: "ไมโครโฟนไร้สาย", category: "เครื่องเสียงและไมโครโฟน", code: "MIC-01", quantity: 4 },

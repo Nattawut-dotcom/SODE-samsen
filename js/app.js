@@ -486,7 +486,7 @@ async function items(el) {
   const host = $("#it", el);
   if (isStaff()) $("#it-add", el).onchange = (e) => {
     const k = e.target.value; e.target.value = "";
-    if (k) itemForm(null, () => draw().catch(fail), k === "general" ? {} : { kind: k, category: "กล้องและอุปกรณ์ถ่ายภาพ" });
+    if (k) itemForm(null, () => draw().catch(fail), k === "general" ? {} : { kind: k, category: k === "camera" ? "กล้อง" : "อุปกรณ์ถ่ายภาพ" });
   };
   async function draw() {
     const [list, active] = await Promise.all([getItems(true), activeLoans()]);
