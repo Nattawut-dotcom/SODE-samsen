@@ -3,7 +3,7 @@ import { store, isDemo, USERNAME_RE } from "./store.js";
 import {
   $, $$, esc, pad, ymd, parseYmd, today, addDays, daysBetween, thDate, thDateLong, thShort, money, num, fiscalYearOf, fiscalRange, fiscalLabel,
   mondayOf, typeLabel, shortType, catIcon, catOrder, LOAN_STATUS, ITEM_STATUS, isOverdue, loanState, ACTIVE, loanUnits, itemsText,
-  loanOn, loanEnd, lineText, itemStatus, availableIn, computeStats, sortedEntries, monthShort, weekLabel, inAppBrowser,
+  loanOn, loanEnd, lineText, extrasText, itemStatus, availableIn, computeStats, sortedEntries, monthShort, weekLabel, inAppBrowser,
 } from "./util.js";
 import { exportLoanReport, exportBudgetReport } from "./report.js";
 
@@ -479,10 +479,15 @@ async function mountCalendar(host, dayHost, active) {
 const itemState = { q: "", cat: "", st: "" };
 async function items(el) {
   el.innerHTML = `<div class="wrap"><div class="page-head head-row"><div><h1>สถานะอุปกรณ์</h1><p>ดูว่าอุปกรณ์ไหนว่าง ถูกยืม หรือกำลังรออนุมัติ แยกตามหมวดหมู่</p></div>
-      ${isStaff() ? `<button class="btn" id="it-add">เพิ่มอุปกรณ์</button>` : `<a class="btn" href="#/borrow">ยืมอุปกรณ์</a>`}</div></div>
+      ${isStaff() ? `<label class="add-menu"><span class="sr">เพิ่มอุปกรณ์</span><select class="btn" id="it-add">
+        <option value="">＋ เพิ่มอุปกรณ์ ▾</option><option value="general">อุปกรณ์ทั่วไป</option><option value="camera">📷 กล้อง</option>
+        <option value="lens">🔭 เลนส์</option><option value="flash">⚡ แฟลช</option><option value="battery">🔋 แบตเตอรี่</option><option value="memory">💾 การ์ดหน่วยความจำ</option></select></label>` : `<a class="btn" href="#/borrow">ยืมอุปกรณ์</a>`}</div></div>
     <section class="band"><div class="wrap" style="padding-top:24px;padding-bottom:56px"><div id="it"></div></div></section>`;
   const host = $("#it", el);
-  if (isStaff()) $("#it-add", el).onclick = () => itemForm(null, () => draw().catch(fail));
+  if (isStaff()) $("#it-add", el).onchange = (e) => {
+    const k = e.target.value; e.target.value = "";
+    if (k) itemForm(null, () => draw().catch(fail), k === "general" ? {} : { kind: k, category: "กล้องและอุปกรณ์ถ่ายภาพ" });
+  };
   async function draw() {
     const [list, active] = await Promise.all([getItems(true), activeLoans()]);
     const t = today();
@@ -609,11 +614,14 @@ async function itemDetail(it, s, onChange) {
   const ed = $("[data-edit]", m.el);
   if (ed) ed.onclick = () => { m.close(); itemForm(it, onChange); };
 }
-function itemForm(rec, done) {
-  const r = rec || { name: "", model: "", category: "", kind: "", code: "", nos: [], quantity: 1, condition: "พร้อมใช้งาน", location: "", allowStudents: true, note: "", thumb: "" };
+const KIND_HINT = { camera: "กล้อง", lens: "เลนส์", flash: "แฟลช", battery: "แบตเตอรี่", memory: "การ์ดหน่วยความจำ" };
+function itemForm(rec, done, preset = {}) {
+  const r = rec || { name: KIND_HINT[preset.kind] || "", model: "", category: preset.category || "", kind: preset.kind || "", code: "", nos: [], quantity: 1, condition: "พร้อมใช้งาน", location: "", allowStudents: true, note: "", thumb: "" };
   const cats = [...new Set([...CATEGORIES.map((c) => c.name), ...(state.items || []).map((x) => x.category)])].filter(Boolean);
   let photoFile = null, removePhoto = false;
-  const m = openModal(rec ? "แก้ไขอุปกรณ์" : "เพิ่มอุปกรณ์", `<form class="form" id="itf" novalidate>
+  const m = openModal(rec ? "แก้ไขอุปกรณ์" : `เพิ่ม${KIND_HINT[preset.kind] || "อุปกรณ์"}`, `<form class="form" id="itf" novalidate>
+      ${!rec && (preset.kind === "battery" || preset.kind === "memory") ? `<p class="note info full" style="margin:0">ถ้าแต่ละก้อน/แต่ละใบเขียนเบอร์ไว้ ใส่ในช่อง “หมายเลขชิ้น” เช่น 1-6 ผู้ยืมจะเลือกเบอร์ได้ตอนยืม</p>` : ""}
+      ${!rec && preset.kind === "lens" ? `<p class="note info full" style="margin:0">แนะนำให้ใส่เมาท์และระยะในชื่อรุ่น เช่น “Canon EF 50mm f/1.8” เพื่อให้ผู้ยืมเลือกเลนส์ที่ใช้กับกล้องได้ถูก</p>` : ""}
       <div class="full photo-field">
         <div class="photo-prev" id="ph-prev">${r.thumb ? `<img src="${r.thumb}" alt="">` : `<span>${catIcon(r.category)}</span>`}</div>
         <div><b>รูปอุปกรณ์</b><p class="hint" style="text-align:left">แสดงในการ์ดและหน้ารายละเอียด (ระบบย่อรูปให้อัตโนมัติ)</p>
@@ -736,6 +744,44 @@ async function borrow(el, params) {
   const pre = params.get("item");
   if (pre && !addItem(pre) && byId.has(pre)) setTimeout(() => toast(canBorrow(byId.get(pre)) ? "อุปกรณ์นี้ไม่ว่างในวันที่เลือก ลองเปลี่ยนวันที่" : "อุปกรณ์นี้ให้ยืมเฉพาะครู / บุคลากร", true), 300);
 
+  const KIT_KINDS = ["lens", "flash", "battery", "memory"];
+  const kitOn = { battery: false, memory: false };   // ติ๊ก "ยืมแบตเตอรี่" / "ยืมการ์ดหน่วยความจำ"
+  const extras = { battery: "", memory: "" };         // เบอร์ที่พิมพ์เอง (ใช้เมื่อยังไม่มีแบต/เมมในระบบ)
+  const ofKind = (k) => usable.filter((it) => kindOf(it) === k && canBorrow(it));
+  const availOf = (it) => (nosOf(it).length ? freeNos(it).length : avail(it));
+
+  // แถวของอุปกรณ์ที่เลือกแล้ว (ใช้ทั้งรายการหลัก และเลนส์/แฟลชในส่วนอุปกรณ์เสริม)
+  function rowHtml(it) {
+    const s = sel.get(it.id), av = avail(it), nos = nosOf(it);
+    const fn = nos.length ? new Set(freeNos(it)) : null;
+    return `<div class="sel-row${s.qty ? "" : " warn"}" data-id="${it.id}">
+      <div class="sel-media">${it.thumb ? `<img src="${it.thumb}" alt="">` : `<span>${catIcon(it.category)}</span>`}</div>
+      <div class="pick-body"><b>${esc(it.name)}</b><span>${[it.model, it.code].filter(Boolean).map(esc).join(" · ")}${it.model || it.code ? " · " : ""}<span class="pick-av${av ? "" : " none"}">${av ? `ว่าง ${av}` : "ไม่ว่างในวันที่เลือก"}</span></span></div>
+      ${nos.length ? "" : `<div class="stepper"><button type="button" data-d="-1" aria-label="ลดจำนวน" ${s.qty > 1 ? "" : "disabled"}>−</button><span>${s.qty}</span><button type="button" data-d="1" aria-label="เพิ่มจำนวน" ${s.qty < av ? "" : "disabled"}>+</button></div>`}
+      <button type="button" class="icon-btn" data-rm aria-label="นำ ${esc(it.name)} ออก">✕</button>
+      ${nos.length ? `<div class="nos"><span class="nos-lb">เลือกหมายเลข:</span>${nos.map((n) => `<button type="button" class="no${s.nos.has(n) ? " on" : ""}" data-no="${esc(n)}" ${fn.has(n) ? "" : "disabled title='ถูกยืมในช่วงนี้'"}>#${esc(n)}</button>`).join("")}</div>` : ""}
+    </div>`;
+  }
+  // ตัวเลือก "＋ เพิ่ม…" สำหรับอุปกรณ์ชนิดหนึ่ง
+  const addSelect = (k, label) => {
+    const items = ofKind(k).filter((it) => !sel.has(it.id));
+    if (!ofKind(k).length) return `<p class="kit-none">ยังไม่มี${label}ในระบบ${isStaff() ? ` — เพิ่มได้ที่ <a href="#/items">สถานะอุปกรณ์ → เพิ่มอุปกรณ์ → ${label}</a>` : ""}</p>`;
+    if (!items.length) return "";
+    return `<select class="inp kit-add" data-add="${k}"><option value="">＋ เพิ่ม${label}…</option>${items.map((it) => { const av = availOf(it);
+      return `<option value="${it.id}" ${av ? "" : "disabled"}>${esc(it.name)}${it.model ? ` — ${esc(it.model)}` : ""} · ${av ? `ว่าง ${av}` : "ไม่ว่าง"}</option>`; }).join("")}</select>`;
+  };
+  // แบต / เมม: ติ๊กเพื่อยืม แล้วเลือกเบอร์ (หรือพิมพ์เบอร์ถ้ายังไม่มีในระบบ)
+  function packHtml(k, label) {
+    const items = ofKind(k);
+    const body = !kitOn[k] ? "" : items.length ? items.map((it) => {
+      const nos = nosOf(it), s = sel.get(it.id), fn = new Set(freeNos(it)), av = avail(it);
+      return `<div class="pack" data-pack="${it.id}"><div class="pack-h">${esc(it.name)}${it.model ? ` <span class="muted">${esc(it.model)}</span>` : ""} <span class="pick-av${availOf(it) ? "" : " none"}">ว่าง ${availOf(it)}</span></div>
+        ${nos.length ? `<div class="nos"><span class="nos-lb">เบอร์:</span>${nos.map((n) => `<button type="button" class="no${s?.nos.has(n) ? " on" : ""}" data-pno="${esc(n)}" ${fn.has(n) ? "" : "disabled title='ถูกยืมในช่วงนี้'"}>#${esc(n)}</button>`).join("")}</div>`
+          : `<div class="stepper"><button type="button" data-pd="-1" aria-label="ลดจำนวน" ${s?.qty ? "" : "disabled"}>−</button><span>${s?.qty || 0}</span><button type="button" data-pd="1" aria-label="เพิ่มจำนวน" ${(s?.qty || 0) < av ? "" : "disabled"}>+</button></div>`}</div>`;
+    }).join("") : `<label class="f"><span>เบอร์${label}ที่ยืม</span><input class="inp" data-extra="${k}" maxlength="60" placeholder="เช่น 2, 5" value="${esc(extras[k])}"></label>`;
+    return `<div class="kit-sec"><label class="f check kit-check"><input type="checkbox" data-on="${k}"${kitOn[k] ? " checked" : ""}> ยืม${label}</label>${body}</div>`;
+  }
+
   function paint() {
     // ปรับรายการที่เลือกให้สอดคล้องกับวันที่ (ตัดเบอร์/จำนวนที่ไม่ว่างออก)
     for (const [id, s] of sel) {
@@ -743,49 +789,51 @@ async function borrow(el, params) {
       if (nosOf(it).length) { const fn = new Set(freeNos(it)); [...s.nos].forEach((n) => !fn.has(n) && s.nos.delete(n)); s.qty = s.nos.size; }
       else s.qty = Math.min(s.qty, avail(it));
     }
-    const rows = [...sel.keys()].map((id) => byId.get(id)).sort((a, b) => (kindOf(a) === "camera" ? -1 : 0) - (kindOf(b) === "camera" ? -1 : 0));
-    selEl.innerHTML = rows.length ? rows.map((it) => {
-      const s = sel.get(it.id), av = avail(it), nos = nosOf(it);
-      const fn = nos.length ? new Set(freeNos(it)) : null;
-      return `<div class="sel-row${s.qty ? "" : " warn"}" data-id="${it.id}">
-        <div class="sel-media">${it.thumb ? `<img src="${it.thumb}" alt="">` : `<span>${catIcon(it.category)}</span>`}</div>
-        <div class="pick-body"><b>${esc(it.name)}</b><span>${[it.model, it.code].filter(Boolean).map(esc).join(" · ")}${it.model || it.code ? " · " : ""}<span class="pick-av${av ? "" : " none"}">${av ? `ว่าง ${av}` : "ไม่ว่างในวันที่เลือก"}</span></span></div>
-        ${nos.length ? "" : `<div class="stepper"><button type="button" data-d="-1" aria-label="ลดจำนวน" ${s.qty > 1 ? "" : "disabled"}>−</button><span>${s.qty}</span><button type="button" data-d="1" aria-label="เพิ่มจำนวน" ${s.qty < av ? "" : "disabled"}>+</button></div>`}
-        <button type="button" class="icon-btn" data-rm aria-label="นำ ${esc(it.name)} ออก">✕</button>
-        ${nos.length ? `<div class="nos"><span class="nos-lb">เลือกหมายเลข:</span>${nos.map((n) => `<button type="button" class="no${s.nos.has(n) ? " on" : ""}" data-no="${esc(n)}" ${fn.has(n) ? "" : "disabled title='ถูกยืมในช่วงนี้'"}>#${esc(n)}</button>`).join("")}</div>` : ""}
-      </div>`;
-    }).join("") : `<div class="sel-empty">ยังไม่ได้เลือกอุปกรณ์ — เลือกจากรายการด้านล่าง หรือกด “ยืม” จากหน้า <a href="#/items">สถานะอุปกรณ์</a></div>`;
-    $$(".sel-row", selEl).forEach((row) => {
+    const all = [...sel.keys()].map((id) => byId.get(id));
+    const hasCamera = all.some((it) => kindOf(it) === "camera");
+    // เมื่อยืมกล้อง: เลนส์ แฟลช แบต เมม ไปอยู่ในส่วนอุปกรณ์เสริม
+    const mainRows = all.filter((it) => !(hasCamera && KIT_KINDS.includes(kindOf(it))))
+      .sort((a, b) => (kindOf(a) === "camera" ? -1 : 0) - (kindOf(b) === "camera" ? -1 : 0));
+    selEl.innerHTML = mainRows.length ? mainRows.map(rowHtml).join("")
+      : `<div class="sel-empty">ยังไม่ได้เลือกอุปกรณ์ — เลือกจากรายการด้านล่าง หรือกด “ยืม” จากหน้า <a href="#/items">สถานะอุปกรณ์</a></div>`;
+
+    if (hasCamera) {
+      ["battery", "memory"].forEach((k) => { if (all.some((it) => kindOf(it) === k)) kitOn[k] = true; });
+      const chosen = (k) => all.filter((it) => kindOf(it) === k);
+      kitEl.innerHTML = `<div class="kit"><div class="kit-h">📷 อุปกรณ์เสริมสำหรับกล้อง</div>
+        <div class="kit-sec"><div class="kit-title">🔭 เลนส์</div>${chosen("lens").map(rowHtml).join("")}${addSelect("lens", "เลนส์")}</div>
+        <div class="kit-sec"><div class="kit-title">⚡ แฟลช</div>${chosen("flash").map(rowHtml).join("") || (ofKind("flash").length ? `<p class="kit-none">ไม่ใช้แฟลช</p>` : "")}${addSelect("flash", "แฟลช")}</div>
+        <div class="kit-pair">${packHtml("battery", "แบตเตอรี่")}${packHtml("memory", "การ์ดหน่วยความจำ")}</div></div>`;
+    } else kitEl.innerHTML = "";
+
+    // ปุ่ม/ตัวเลือกในแถวอุปกรณ์ (รายการหลัก + เลนส์/แฟลช)
+    [selEl, kitEl].forEach((host) => $$(".sel-row", host).forEach((row) => {
       const id = row.dataset.id, s = sel.get(id);
       $("[data-rm]", row).onclick = () => { sel.delete(id); paint(); };
       $$("[data-d]", row).forEach((b) => (b.onclick = () => { s.qty = Math.max(1, s.qty + Number(b.dataset.d)); paint(); }));
       $$("[data-no]", row).forEach((b) => (b.onclick = () => { const n = b.dataset.no; s.nos.has(n) ? s.nos.delete(n) : s.nos.add(n); s.qty = s.nos.size; paint(); }));
-    });
-
-    // อุปกรณ์เสริมสำหรับกล้อง
-    const hasCamera = rows.some((it) => kindOf(it) === "camera");
-    const KIT = [["lens", "เลนส์", "ไม่ยืมเลนส์เพิ่ม"], ["flash", "ใช้แฟลชไหม", "ไม่ใช้แฟลช"], ["battery", "แบตเตอรี่", "ไม่ยืมแบตเพิ่ม"], ["memory", "การ์ดหน่วยความจำ", "ไม่ยืมเมม"]];
-    const kitOpts = (k) => usable.filter((it) => kindOf(it) === k && canBorrow(it));
-    kitEl.innerHTML = hasCamera ? `<div class="kit"><div class="kit-h">📷 อุปกรณ์เสริมสำหรับกล้อง</div><div class="kit-grid">${KIT.map(([k, label, none]) => {
-      const items = kitOpts(k), cur = items.filter((it) => sel.has(it.id)).map((it) => it.id);
-      return `<label class="f"><span>${label}</span><select class="inp" data-kit="${k}" ${items.length ? "" : "disabled"}>
-        <option value="">${items.length ? none : `ยังไม่มี${label.replace("ใช้", "").replace("ไหม", "")}ในระบบ`}</option>
-        ${items.map((it) => { const av = nosOf(it).length ? freeNos(it).length : avail(it); return `<option value="${it.id}"${cur[0] === it.id ? " selected" : ""}${av || sel.has(it.id) ? "" : " disabled"}>${esc(it.name)}${it.model ? ` — ${esc(it.model)}` : ""} (ว่าง ${av})</option>`; }).join("")}
-        ${cur.length > 1 ? `<option value="__multi" selected>เลือกไว้ ${cur.length} รายการ</option>` : ""}</select></label>`;
-    }).join("")}</div><p class="hint" style="text-align:left;margin-top:8px">แบตและเมมที่มีเบอร์ เลือกหมายเลขได้ในรายการด้านบน</p></div>` : "";
-    $$("[data-kit]", kitEl).forEach((s) => (s.onchange = () => {
-      const k = s.dataset.kit, v = s.value;
-      if (v === "__multi") return;
-      kitOpts(k).forEach((it) => sel.delete(it.id));
-      if (v && !addItem(v)) toast("อุปกรณ์นี้ไม่ว่างในวันที่เลือก", true);
+    }));
+    $$("[data-add]", kitEl).forEach((x) => (x.onchange = () => { if (x.value && !addItem(x.value)) toast("อุปกรณ์นี้ไม่ว่างในวันที่เลือก", true); paint(); }));
+    $$("[data-on]", kitEl).forEach((c) => (c.onchange = () => {
+      const k = c.dataset.on; kitOn[k] = c.checked;
+      if (!c.checked) { ofKind(k).forEach((it) => sel.delete(it.id)); extras[k] = ""; }
       paint();
     }));
+    $$("[data-extra]", kitEl).forEach((i) => (i.oninput = () => { extras[i.dataset.extra] = i.value; }));
+    $$("[data-pack]", kitEl).forEach((p) => {
+      const id = p.dataset.pack;
+      const get = () => { if (!sel.has(id)) sel.set(id, { qty: 0, nos: new Set() }); return sel.get(id); };
+      const tidy = () => { const s = sel.get(id); if (s && !s.qty) sel.delete(id); paint(); };
+      $$("[data-pno]", p).forEach((b) => (b.onclick = () => { const s = get(), n = b.dataset.pno; s.nos.has(n) ? s.nos.delete(n) : s.nos.add(n); s.qty = s.nos.size; tidy(); }));
+      $$("[data-pd]", p).forEach((b) => (b.onclick = () => { const s = get(); s.qty = Math.max(0, s.qty + Number(b.dataset.pd)); tidy(); }));
+    });
 
-    // dropdown เพิ่มอุปกรณ์อื่น
+    // dropdown เพิ่มอุปกรณ์อื่น (ถ้าเลือกกล้องแล้ว อุปกรณ์เสริมกล้องเลือกในกล่องอุปกรณ์เสริมแทน)
     const groups = new Map();
-    usable.filter((it) => !sel.has(it.id)).forEach((it) => { const c = it.category || "อื่น ๆ"; if (!groups.has(c)) groups.set(c, []); groups.get(c).push(it); });
-    addEl.innerHTML = `<option value="">＋ ${rows.length ? "เพิ่มอุปกรณ์อื่น" : "เลือกอุปกรณ์ที่ต้องการยืม"}…</option>` + [...groups.entries()].map(([c, its]) =>
-      `<optgroup label="${catIcon(c)} ${esc(c)}">${its.map((it) => { const ok = canBorrow(it), av = nosOf(it).length ? freeNos(it).length : avail(it);
+    usable.filter((it) => !sel.has(it.id) && !(hasCamera && KIT_KINDS.includes(kindOf(it))))
+      .forEach((it) => { const c = it.category || "อื่น ๆ"; if (!groups.has(c)) groups.set(c, []); groups.get(c).push(it); });
+    addEl.innerHTML = `<option value="">＋ ${mainRows.length ? "เพิ่มอุปกรณ์อื่น" : "เลือกอุปกรณ์ที่ต้องการยืม"}…</option>` + [...groups.entries()].map(([c, its]) =>
+      `<optgroup label="${catIcon(c)} ${esc(c)}">${its.map((it) => { const ok = canBorrow(it), av = availOf(it);
         return `<option value="${it.id}" ${ok && av ? "" : "disabled"}>${esc(it.name)}${it.model ? ` — ${esc(it.model)}` : ""} · ${!ok ? "เฉพาะครู" : av ? `ว่าง ${av}` : "ไม่ว่าง"}</option>`; }).join("")}</optgroup>`).join("");
     addEl.disabled = !groups.size;
 
@@ -809,6 +857,11 @@ async function borrow(el, params) {
     if (b < a) return toast("กำหนดคืนต้องไม่ก่อนวันที่ยืม", true);
     const chosen = [...sel].filter(([, s]) => s.qty > 0);
     if (!chosen.length) return toast("กรุณาเลือกอุปกรณ์อย่างน้อย 1 รายการ", true);
+    for (const [k, label] of [["battery", "แบตเตอรี่"], ["memory", "การ์ดหน่วยความจำ"]]) {
+      if (!kitOn[k] || !kitEl.innerHTML) continue;
+      const picked = ofKind(k).some((it) => sel.get(it.id)?.qty);
+      if (ofKind(k).length ? !picked : !extras[k].trim()) return toast(`ติ๊ก “ยืม${label}” ไว้ กรุณาเลือกเบอร์${label} (หรือเอาติ๊กออก)`, true);
+    }
     const empty = [...sel].find(([, s]) => !s.qty);
     if (empty) return toast(`"${byId.get(empty[0]).name}" ยังไม่ได้เลือกหมายเลข/จำนวน (หรือกด ✕ เพื่อนำออก)`, true);
     const btn = $("button[type=submit]", f);
@@ -831,7 +884,9 @@ async function borrow(el, params) {
       const loan = {
         uid: u.uid, borrowerName: staff ? v.borrowerName.trim() : u.name, borrowerType: p.type || "teacher",
         classroom: p.classroom || "", studentNo: p.studentNo || "", department: p.department || "",
-        items: lineItems, itemIds: lineItems.map((x) => x.itemId), borrowDate: a, dueDate: b, purpose: v.purpose, note: v.note.trim(),
+        items: lineItems, itemIds: lineItems.map((x) => x.itemId),
+        extras: kitEl.innerHTML ? Object.fromEntries(["battery", "memory"].filter((k) => kitOn[k] && !ofKind(k).length && extras[k].trim()).map((k) => [k, extras[k].trim()])) : {},
+        borrowDate: a, dueDate: b, purpose: v.purpose, note: v.note.trim(),
         status: staff ? "approved" : "pending", reason: "", createdAt: Date.now(), ...(staff ? { approvedBy: u.name, onBehalf: true } : {}),
       };
       if (staff) await calReady();
@@ -898,6 +953,7 @@ async function showLoan(l, onChange) {
       <dt>สถานะ</dt><dd>${stBadge(l)}${l.reason ? ` <span style="color:var(--ink-2)">${esc(l.reason)}</span>` : ""}</dd>
       <dt>ผู้ยืม</dt><dd>${who(l)}${contact?.phone ? `<div><a href="tel:${esc(contact.phone)}">${esc(contact.phone)}</a></div>` : ""}</dd>
       <dt>อุปกรณ์</dt><dd>${(l.items || []).map((x) => `${catIcon(x.category)} ${esc(x.name)}${x.model ? ` <span class="muted">${esc(x.model)}</span>` : ""}${x.code ? ` <span class="muted">(${esc(x.code)})</span>` : ""} ${x.nos?.length ? `· หมายเลข #${x.nos.map(esc).join(", #")}` : `× ${x.qty}`}`).join("<br>")}</dd>
+      ${extrasText(l) ? `<dt>อุปกรณ์เสริม</dt><dd>${esc(extrasText(l))}</dd>` : ""}
       <dt>วันที่ยืม</dt><dd>${thDateLong(l.borrowDate)}</dd><dt>กำหนดคืน</dt><dd>${thDateLong(l.dueDate)}${isOverdue(l) ? ` <b style="color:var(--red)">(เกิน ${daysBetween(l.dueDate, today())} วัน)</b>` : ""}</dd>
       ${l.status === "returned" ? `<dt>คืนเมื่อ</dt><dd>${thDateLong(l.returnedDate)}${l.returnNote ? `<div class="muted">${esc(l.returnNote)}</div>` : ""}</dd>` : ""}
       <dt>ใช้สำหรับ</dt><dd>${esc(l.purpose) || "–"}</dd><dt>รายละเอียด</dt><dd>${esc(l.note) || "–"}</dd>
