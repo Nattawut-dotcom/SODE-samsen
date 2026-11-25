@@ -1,6 +1,6 @@
 // ส่งออกรายงานเป็นไฟล์ Word (.docx) ด้วยไลบรารี docx (โหลดจาก CDN ใน index.html)
 import { CONFIG, BUDGET_CATEGORIES, FUND_TYPES } from "./config.js";
-import { thDate, money, num, sortedEntries, monthLabel, weekLabel, fiscalLabel } from "./util.js";
+import { thDate, money, num, sortedEntries, monthLabel, weekLabel, fiscalLabel, lineText } from "./util.js";
 
 const FONT = "TH Sarabun New";
 const lib = () => {
@@ -154,7 +154,7 @@ export async function exportLoanReport({ from, to, rows, stats, typeLabel = "ท
     ...(rows.length ? rows.map((l, i) => row([
       cell(i + 1, { align: "center", size: 24 }), cell(`${sd(l.borrowDate)}\n– ${sd(l.dueDate)}`, { size: 24 }),
       cell(`${l.borrowerName}\n${l.borrowerType === "student" ? `นักเรียน ${l.classroom || ""}` : l.department || "ครู/บุคลากร"}`, { size: 24 }),
-      cell((l.items || []).map((x) => `${x.name} ×${x.qty}`).join("\n"), { size: 24 }), cell(stTxt(l), { size: 24 }),
+      cell((l.items || []).map(lineText).join("\n"), { size: 24 }), cell(stTxt(l), { size: 24 }),
     ])) : [row([cell("ไม่มีข้อมูล", { span: 5, align: "center" })])]),
   ]));
 

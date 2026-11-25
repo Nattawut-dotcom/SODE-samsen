@@ -79,7 +79,8 @@ export const isOverdue = (l, t = today()) => l.status === "approved" && l.dueDat
 export const loanState = (l) => (isOverdue(l) ? "overdue" : l.status);
 export const ACTIVE = ["pending", "approved"];
 export const loanUnits = (l) => (l.items || []).reduce((s, x) => s + Number(x.qty || 0), 0);
-export const itemsText = (l) => (l.items || []).map((x) => `${x.name}${x.qty > 1 ? ` ×${x.qty}` : ""}`).join(", ");
+export const lineText = (x) => `${x.name}${x.nos?.length ? ` #${x.nos.join(", #")}` : x.qty > 1 ? ` ×${x.qty}` : ""}`;
+export const itemsText = (l) => (l.items || []).map(lineText).join(", ");
 
 // วันสุดท้ายที่รายการยืมนี้ "ครอบครอง" อุปกรณ์
 export function loanEnd(l, t = today()) {

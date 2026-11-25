@@ -1,9 +1,9 @@
-import { CONFIG, DEPARTMENTS, PURPOSES, USER_TYPES, CATEGORIES, CONDITIONS, DEFAULT_ITEMS, BUDGET_CATEGORIES, FUND_TYPES, BUDGET_PROJECTS } from "./config.js";
+import { CONFIG, DEPARTMENTS, PURPOSES, USER_TYPES, CATEGORIES, CONDITIONS, KINDS, DEFAULT_ITEMS, BUDGET_CATEGORIES, FUND_TYPES, BUDGET_PROJECTS } from "./config.js";
 import { store, isDemo, USERNAME_RE } from "./store.js";
 import {
   $, $$, esc, pad, ymd, parseYmd, today, addDays, daysBetween, thDate, thDateLong, thShort, money, num, fiscalYearOf, fiscalRange, fiscalLabel,
   mondayOf, typeLabel, shortType, catIcon, catOrder, LOAN_STATUS, ITEM_STATUS, isOverdue, loanState, ACTIVE, loanUnits, itemsText,
-  loanOn, itemStatus, availableIn, computeStats, sortedEntries, monthShort, weekLabel, inAppBrowser,
+  loanOn, loanEnd, lineText, itemStatus, availableIn, computeStats, sortedEntries, monthShort, weekLabel, inAppBrowser,
 } from "./util.js";
 import { exportLoanReport, exportBudgetReport } from "./report.js";
 
@@ -535,32 +535,73 @@ async function items(el) {
   await draw();
 }
 const canBorrow = (it) => isStaff() || state.user.type !== "student" || it.allowStudents !== false;
+const kindOf = (it) => it.kind || "";
+const nosOf = (it) => (Array.isArray(it.nos) ? it.nos : []);
+const thumbHtml = (it, cls = "thumb") => it.thumb ? `<img class="${cls}" src="${it.thumb}" alt="" loading="lazy">` : "";
+
+// แปลงข้อความหมายเลขชิ้น เช่น "1-6" หรือ "B1-B4, B7" เป็นรายการ
+function parseNos(text) {
+  const out = [];
+  for (const tok of String(text || "").split(/[,\s]+/).map((t) => t.trim()).filter(Boolean)) {
+    const m = tok.match(/^([^\d-–]*)(\d+)[-–]\1?(\d+)$/);
+    if (m && +m[3] >= +m[2] && +m[3] - +m[2] < 200) for (let i = +m[2]; i <= +m[3]; i++) out.push(m[1] + i);
+    else out.push(tok.replace(/^#/, ""));
+  }
+  return [...new Set(out)].slice(0, 200);
+}
+// ย่อรูปเป็น JPEG (data URL) ตามขนาดด้านยาวสุด
+async function imageData(file, max, quality) {
+  let src;
+  try { src = await createImageBitmap(file); }
+  catch {
+    src = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = () => rej(new Error("เปิดไฟล์รูปนี้ไม่ได้ กรุณาใช้ไฟล์ JPG หรือ PNG")); i.src = URL.createObjectURL(file); });
+  }
+  const w = src.width, h = src.height, s = Math.min(1, max / Math.max(w, h));
+  const c = document.createElement("canvas");
+  c.width = Math.round(w * s); c.height = Math.round(h * s);
+  const g = c.getContext("2d");
+  g.fillStyle = "#fff"; g.fillRect(0, 0, c.width, c.height);
+  g.drawImage(src, 0, 0, c.width, c.height);
+  let q = quality, url = c.toDataURL("image/jpeg", q);
+  while (url.length > 900 * 1024 && q > 0.4) { q -= 0.1; url = c.toDataURL("image/jpeg", q); }
+  return url;
+}
+
 function itemCard(it, s) {
   const pct = s.qty ? Math.round((s.free / s.qty) * 100) : 0;
   const h = s.holders[0];
   return `<div class="icard ${s.key}" data-id="${it.id}" tabindex="0" role="button" aria-label="${esc(it.name)} ${ITEM_STATUS[s.key].label}">
+    ${it.thumb ? `<div class="icard-photo"><img src="${it.thumb}" alt="" loading="lazy"></div>` : ""}
     <div class="icard-top"><span class="icard-ico">${catIcon(it.category)}</span>${itemBadge(s)}</div>
     <h3>${esc(it.name)}</h3>
-    <div class="muted">${[it.code, it.location].filter(Boolean).map(esc).join(" · ") || "&nbsp;"}</div>
+    <div class="muted">${[it.model, it.code, it.location].filter(Boolean).map(esc).join(" · ") || "&nbsp;"}</div>
     <div class="meter" aria-hidden="true"><span style="width:${pct}%"></span></div>
-    <div class="icard-row"><span>ว่าง <b>${s.free}</b> / ${s.qty} ชิ้น</span>${s.pend ? `<span class="st st-pending">รออนุมัติ ${s.pend}</span>` : ""}</div>
+    <div class="icard-row"><span>ว่าง <b>${s.free}</b> / ${s.qty} ${nosOf(it).length ? "ชิ้น (มีหมายเลข)" : "ชิ้น"}</span>${s.pend ? `<span class="st st-pending">รออนุมัติ ${s.pend}</span>` : ""}</div>
     ${h ? `<div class="icard-who">ยืมโดย ${esc(h.borrowerName)} · คืน ${thShort(h.dueDate)}${s.holders.length > 1 ? ` และอีก ${s.holders.length - 1}` : ""}</div>` : ""}
     ${it.allowStudents === false ? `<div class="tags"><span class="tag">เฉพาะครู / บุคลากร</span></div>` : ""}
     <div class="icard-acts">${!s.broken && canBorrow(it) ? `<button class="btn sm" data-a="borrow">ยืม</button>` : ""}${isStaff() ? `<button class="btn ghost sm" data-a="edit">แก้ไข</button>` : ""}</div>
   </div>`;
 }
 async function itemDetail(it, s, onChange) {
-  let history = [];
-  try { history = (await store.query("loans", { contains: ["itemIds", it.id] })).sort((a, b) => b.borrowDate.localeCompare(a.borrowDate)); } catch (e) { console.warn(e); }
+  let history = [], photo = null;
+  const [h, p] = await Promise.allSettled([store.query("loans", { contains: ["itemIds", it.id] }), it.hasPhoto ? store.get("itemPhotos", it.id) : null]);
+  if (h.status === "fulfilled") history = h.value.sort((a, b) => b.borrowDate.localeCompare(a.borrowDate));
+  if (p.status === "fulfilled") photo = p.value?.data || null;
   const current = history.filter((l) => ACTIVE.includes(l.status));
   const past = history.filter((l) => !ACTIVE.includes(l.status)).slice(0, 8);
-  const qtyOf = (l) => (l.items || []).find((x) => x.itemId === it.id)?.qty || 0;
-  const line = (l) => `<div class="day-item static" data-loan="${l.id}"><span class="di-body"><b>${esc(l.borrowerName)} ${typeBadge(l.borrowerType)}</b><span>${dateRange(l)} · ${qtyOf(l)} ชิ้น</span></span>${stBadge(l)}</div>`;
+  const lineOf = (l) => (l.items || []).find((x) => x.itemId === it.id) || { qty: 0 };
+  const qtyTxt = (x) => (x.nos?.length ? `#${x.nos.join(", #")}` : `${x.qty} ชิ้น`);
+  const line = (l) => `<div class="day-item static" data-loan="${l.id}"><span class="di-body"><b>${esc(l.borrowerName)} ${typeBadge(l.borrowerType)}</b><span>${dateRange(l)} · ${qtyTxt(lineOf(l))}</span></span>${stBadge(l)}</div>`;
+  const nos = nosOf(it);
+  const busy = new Set(current.filter((l) => l.status === "approved").flatMap((l) => lineOf(l).nos || []));
   const m = openModal(it.name, `
-    <div class="detail-top">${itemBadge(s)} <span class="clip">ว่าง ${s.free}/${s.qty} ชิ้น${s.pend ? ` · รออนุมัติ ${s.pend}` : ""}</span></div>
-    <dl class="dl"><dt>หมวดหมู่</dt><dd>${catIcon(it.category)} ${esc(it.category)}</dd><dt>รหัส</dt><dd>${esc(it.code) || "–"}</dd>
+    ${photo || it.thumb ? `<div class="detail-photo"><img src="${photo || it.thumb}" alt="รูป ${esc(it.name)}"></div>` : ""}
+    <div class="detail-top"><span class="icard-ico">${catIcon(it.category)}</span>${itemBadge(s)} <span class="clip">ว่าง ${s.free}/${s.qty} ชิ้น${s.pend ? ` · รออนุมัติ ${s.pend}` : ""}</span></div>
+    <dl class="dl"><dt>ชื่อรุ่น</dt><dd>${esc(it.model) || "–"}</dd><dt>หมวดหมู่</dt><dd>${esc(it.category)}${KINDS[kindOf(it)] && kindOf(it) ? ` · ${KINDS[kindOf(it)]}` : ""}</dd>
+      <dt>รหัส</dt><dd>${esc(it.code) || "–"}</dd>
+      ${nos.length ? `<dt>หมายเลขชิ้น</dt><dd><div class="nos static">${nos.map((n) => `<span class="no${busy.has(n) ? " busy" : ""}" title="${busy.has(n) ? "ถูกยืมอยู่" : "ว่าง"}">#${esc(n)}</span>`).join("")}</div></dd>` : ""}
       <dt>ที่เก็บ</dt><dd>${esc(it.location) || "–"}</dd><dt>สภาพ</dt><dd>${esc(it.condition || "พร้อมใช้งาน")}</dd>
-      <dt>ผู้ยืมได้</dt><dd>${it.allowStudents === false ? "เฉพาะครู / บุคลากร" : "ครูและนักเรียน"}</dd><dt>หมายเหตุ</dt><dd>${esc(it.note) || "–"}</dd></dl>
+      <dt>ผู้ยืมได้</dt><dd>${it.allowStudents === false ? "เฉพาะครู / บุคลากร" : "ครูและนักเรียน"}</dd><dt>รายละเอียด</dt><dd>${esc(it.note) || "–"}</dd></dl>
     <h3 class="mh">กำลังยืม / รออนุมัติ</h3>${current.length ? `<div class="day-list">${current.map(line).join("")}</div>` : `<p class="muted-p">ไม่มี</p>`}
     <h3 class="mh">ประวัติล่าสุด</h3>${past.length ? `<div class="day-list">${past.map(line).join("")}</div>` : `<p class="muted-p">ยังไม่มีประวัติการยืม</p>`}
     <div class="form-actions" style="margin-top:18px">${isStaff() ? `<button class="btn ghost" data-edit>แก้ไขอุปกรณ์</button>` : ""}${!s.broken && canBorrow(it) ? `<a class="btn" href="#/borrow?item=${it.id}">ยืมอุปกรณ์นี้</a>` : ""}</div>`);
@@ -569,60 +610,106 @@ async function itemDetail(it, s, onChange) {
   if (ed) ed.onclick = () => { m.close(); itemForm(it, onChange); };
 }
 function itemForm(rec, done) {
-  const r = rec || { name: "", category: "", code: "", quantity: 1, condition: "พร้อมใช้งาน", location: "", allowStudents: true, note: "" };
+  const r = rec || { name: "", model: "", category: "", kind: "", code: "", nos: [], quantity: 1, condition: "พร้อมใช้งาน", location: "", allowStudents: true, note: "", thumb: "" };
   const cats = [...new Set([...CATEGORIES.map((c) => c.name), ...(state.items || []).map((x) => x.category)])].filter(Boolean);
+  let photoFile = null, removePhoto = false;
   const m = openModal(rec ? "แก้ไขอุปกรณ์" : "เพิ่มอุปกรณ์", `<form class="form" id="itf" novalidate>
-      <label class="f full"><span>ชื่ออุปกรณ์ *</span><input class="inp" name="name" required maxlength="100" value="${esc(r.name)}" placeholder="เช่น กล้อง Canon EOS 90D"></label>
-      <label class="f full"><span>หมวดหมู่ * <small>(เลือก หรือพิมพ์หมวดใหม่)</small></span><input class="inp" name="category" required list="dl-cat" maxlength="60" value="${esc(r.category)}"><datalist id="dl-cat">${cats.map((c) => `<option value="${esc(c)}">`).join("")}</datalist></label>
+      <div class="full photo-field">
+        <div class="photo-prev" id="ph-prev">${r.thumb ? `<img src="${r.thumb}" alt="">` : `<span>${catIcon(r.category)}</span>`}</div>
+        <div><b>รูปอุปกรณ์</b><p class="hint" style="text-align:left">แสดงในการ์ดและหน้ารายละเอียด (ระบบย่อรูปให้อัตโนมัติ)</p>
+          <label class="btn ghost sm file-btn">เลือกรูป<input type="file" accept="image/*" id="ph-file" hidden></label>
+          <button type="button" class="btn danger sm" id="ph-del" ${r.thumb ? "" : "hidden"}>ลบรูป</button></div>
+      </div>
+      <label class="f full"><span>ชื่ออุปกรณ์ *</span><input class="inp" name="name" required maxlength="100" value="${esc(r.name)}" placeholder="เช่น กล้อง DSLR, เลนส์ 50mm, แบตเตอรี่กล้อง"></label>
+      <label class="f"><span>ชื่อรุ่น</span><input class="inp" name="model" maxlength="100" value="${esc(r.model)}" placeholder="เช่น Canon EOS 90D"></label>
       <label class="f"><span>รหัส / เลขครุภัณฑ์</span><input class="inp" name="code" maxlength="40" value="${esc(r.code)}"></label>
-      <label class="f"><span>จำนวน (ชิ้น) *</span><input class="inp" name="quantity" type="number" min="1" max="999" required inputmode="numeric" value="${esc(r.quantity)}"></label>
+      <label class="f"><span>หมวดหมู่ * <small>(เลือก หรือพิมพ์หมวดใหม่)</small></span><input class="inp" name="category" required list="dl-cat" maxlength="60" value="${esc(r.category)}"><datalist id="dl-cat">${cats.map((c) => `<option value="${esc(c)}">`).join("")}</datalist></label>
+      <label class="f"><span>ใช้กับชุดกล้อง</span><select class="inp" name="kind">${Object.entries(KINDS).map(([k, v]) => `<option value="${k}"${kindOf(r) === k ? " selected" : ""}>${v}</option>`).join("")}</select></label>
+      <label class="f full"><span>หมายเลขชิ้น <small>(ถ้ามี เช่น แบต/เมม ที่เขียนเบอร์ไว้ — พิมพ์ "1-6" หรือ "B1, B2, B5" ระบบจะนับจำนวนให้)</small></span><input class="inp" name="nos" maxlength="400" value="${esc(nosOf(r).join(", "))}" placeholder="เว้นว่างถ้าไม่ได้ติดเบอร์"></label>
+      <label class="f"><span>จำนวน (ชิ้น) *</span><input class="inp" name="quantity" type="number" min="1" max="999" required inputmode="numeric" value="${esc(nosOf(r).length || r.quantity)}"></label>
       <label class="f"><span>สภาพ</span><select class="inp" name="condition">${opts(CONDITIONS, r.condition || "พร้อมใช้งาน")}</select></label>
       <label class="f"><span>ที่เก็บ</span><input class="inp" name="location" maxlength="80" value="${esc(r.location)}" placeholder="เช่น ตู้ A ห้องโสต"></label>
-      <label class="f full check"><input type="checkbox" name="allowStudents"${r.allowStudents !== false ? " checked" : ""}> นักเรียนยืมได้ <small>(ไม่ติ๊ก = เฉพาะครู / บุคลากร)</small></label>
-      <label class="f full"><span>หมายเหตุ</span><input class="inp" name="note" maxlength="200" value="${esc(r.note)}"></label>
+      <label class="f check" style="align-self:end"><input type="checkbox" name="allowStudents"${r.allowStudents !== false ? " checked" : ""}> นักเรียนยืมได้</label>
+      <label class="f full"><span>รายละเอียด / หมายเหตุ</span><textarea class="inp" name="note" rows="2" maxlength="400" placeholder="เช่น เมาท์ EF, ความจุ 64GB, ใช้คู่กับกล้อง CAM-01">${esc(r.note)}</textarea></label>
       <div class="full form-actions">${rec ? `<button type="button" class="btn danger" data-del style="margin-right:auto">ลบอุปกรณ์</button>` : ""}<button type="button" class="btn ghost" data-x>ยกเลิก</button><button class="btn" type="submit">บันทึก</button></div></form>`);
-  const f = $("#itf", m.el);
+  const f = $("#itf", m.el), prev = $("#ph-prev", m.el);
   $("[data-x]", m.el).onclick = m.dismiss;
+  const syncQty = () => { const n = parseNos(f.elements.nos.value).length; f.elements.quantity.readOnly = n > 0; if (n) f.elements.quantity.value = n; };
+  f.elements.nos.oninput = syncQty; syncQty();
+  $("#ph-file", m.el).onchange = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    photoFile = file; removePhoto = false;
+    prev.innerHTML = `<img src="${URL.createObjectURL(file)}" alt="">`;
+    $("#ph-del", m.el).hidden = false;
+  };
+  $("#ph-del", m.el).onclick = () => { photoFile = null; removePhoto = true; prev.innerHTML = `<span>${catIcon(f.elements.category.value)}</span>`; $("#ph-del", m.el).hidden = true; };
   const del = $("[data-del]", m.el);
   if (del) del.onclick = async () => {
     try {
       const act = (await store.query("loans", { contains: ["itemIds", r.id] })).filter((l) => ACTIVE.includes(l.status));
       if (act.length) return toast(`ลบไม่ได้: ยังมีรายการยืม/คำขอที่ค้างอยู่ ${act.length} รายการ (ตั้งสภาพเป็น "ส่งซ่อม" แทนได้)`, true);
       if (!confirm(`ลบ "${r.name}" ออกจากระบบ? ประวัติการยืมเดิมยังอยู่ในสถิติ`)) return;
-      await store.remove("items", r.id); state.items = null; m.close(); toast("ลบแล้ว"); done();
+      await store.remove("items", r.id); await store.remove("itemPhotos", r.id).catch(() => {});
+      state.items = null; m.close(); toast("ลบแล้ว"); done();
     } catch (e) { fail(e); }
   };
   f.onsubmit = async (e) => {
     e.preventDefault();
     if (!f.reportValidity()) return;
     const v = Object.fromEntries(new FormData(f));
+    const nos = parseNos(v.nos);
     const data = {
-      name: v.name.trim(), category: v.category.trim(), code: v.code.trim(), quantity: Math.max(1, parseInt(v.quantity, 10) || 1),
-      condition: v.condition, location: v.location.trim(), allowStudents: !!f.elements.allowStudents.checked, note: v.note.trim(), updatedAt: Date.now(),
+      name: v.name.trim(), model: v.model.trim(), category: v.category.trim(), kind: v.kind || "", code: v.code.trim(), nos,
+      quantity: nos.length || Math.max(1, parseInt(v.quantity, 10) || 1), condition: v.condition, location: v.location.trim(),
+      allowStudents: !!f.elements.allowStudents.checked, note: v.note.trim(), updatedAt: Date.now(),
     };
+    const btn = $("button[type=submit]", f); btn.disabled = true;
     try {
-      if (rec) await store.update("items", r.id, data); else await store.add("items", { ...data, createdAt: Date.now() });
+      let full = null;
+      if (photoFile) { data.thumb = await imageData(photoFile, 480, 0.72); full = await imageData(photoFile, 1400, 0.82); data.hasPhoto = true; }
+      else if (removePhoto) { data.thumb = ""; data.hasPhoto = false; }
+      let id = r.id;
+      if (rec) await store.update("items", id, data); else id = await store.add("items", { ...data, thumb: data.thumb || "", hasPhoto: !!data.hasPhoto, createdAt: Date.now() });
+      if (full) await store.set("itemPhotos", id, { data: full, updatedAt: Date.now() });
+      else if (removePhoto) await store.remove("itemPhotos", id).catch(() => {});
       state.items = null; m.close(); toast("บันทึกแล้ว"); done();
-    } catch (err) { fail(err); }
+    } catch (err) { btn.disabled = false; fail(err); }
   };
 }
 
 // ============================================================
 //  ยืมอุปกรณ์
 // ============================================================
+// หมายเลขชิ้นที่ถูกใช้ในช่วงวันที่ (จากรายการยืมที่ยังไม่ปิด)
+function usedNos(itemId, loans, from, to, excludeId) {
+  const t = today(), used = new Set();
+  for (const l of loans) {
+    if (l.id === excludeId || !ACTIVE.includes(l.status) || !(l.borrowDate <= to && loanEnd(l, t) >= from)) continue;
+    for (const x of l.items || []) if (x.itemId === itemId) (x.nos || []).forEach((n) => used.add(n));
+  }
+  return used;
+}
 async function borrow(el, params) {
   const u = state.user, staff = isStaff(), t = today();
   const [list, active] = await Promise.all([getItems(true), activeLoans()]);
   const usable = list.filter((it) => it.condition === "พร้อมใช้งาน" || !it.condition);
-  const pre = usable.find((it) => it.id === params.get("item") && canBorrow(it));
-  const qty = new Map(pre ? [[pre.id, 1]] : []);
+  const byId = new Map(usable.map((it) => [it.id, it]));
+  const sel = new Map(); // itemId -> { qty, nos:Set }
   const d0 = params.get("date") && params.get("date") >= t ? params.get("date") : t;
   el.innerHTML = `
     <div class="wrap narrow"><div class="page-head"><h1>ยืมอุปกรณ์</h1><p>${staff ? "บันทึกการยืมแทนผู้ยืม รายการที่พนักงานโสตบันทึกจะอนุมัติทันที" : "เลือกอุปกรณ์และวันที่ แล้วส่งคำขอ พนักงานโสตจะอนุมัติและแจ้งผลในหน้า “รายการของฉัน”"}</p></div>
     <div class="section">
     ${usable.length ? "" : `<p class="note warn">ยังไม่มีอุปกรณ์ที่พร้อมให้ยืม${staff ? ` <a href="#/items">เพิ่มอุปกรณ์</a>` : ""}</p>`}
     <form id="bf" class="form" novalidate>
-      <h2 class="full fh">1. ผู้ยืม</h2>
+      <h2 class="full fh">1. อุปกรณ์ <small id="sel-sum"></small></h2>
+      <div class="full" id="sel"></div>
+      <div class="full" id="kit"></div>
+      <label class="f full add-item"><span class="sr">เพิ่มอุปกรณ์</span><select class="inp" id="add-item"></select></label>
+      <h2 class="full fh">2. วันที่</h2>
+      <label class="f"><span>วันที่ยืม *</span><input class="inp" type="date" name="borrowDate" required value="${d0}" ${staff ? "" : `min="${t}"`}></label>
+      <label class="f"><span>กำหนดคืน *</span><input class="inp" type="date" name="dueDate" required value="${d0}" min="${d0}"></label>
+      <h2 class="full fh">3. ผู้ยืม</h2>
       ${staff ? `
         <label class="f full"><span>ชื่อผู้ยืม *</span><input class="inp" name="borrowerName" required maxlength="80" value="${esc(u.name)}"></label>
         <fieldset class="full"><legend>ประเภทผู้ยืม *</legend>${typeChips("type", u.type || "teacher")}</fieldset>
@@ -630,41 +717,82 @@ async function borrow(el, params) {
       : `<div class="full who-card">${esc(u.name)} ${typeBadge(u.type)}<span class="muted">${esc(u.type === "student" ? [u.classroom, u.studentNo && "เลขที่ " + u.studentNo].filter(Boolean).join(" ") : u.department)}</span> <a href="#/profile" class="linkbtn">แก้ไขข้อมูล</a></div>`}
       <label class="f"><span>เบอร์โทรศัพท์ *</span><input class="inp" name="phone" required inputmode="tel" maxlength="20" value="${esc(u.phone)}" placeholder="08x-xxx-xxxx"></label>
       <label class="f"><span>ใช้สำหรับ *</span><select class="inp" name="purpose" required>${opts(PURPOSES, "", "เลือกวัตถุประสงค์")}</select></label>
-      <h2 class="full fh">2. วันที่</h2>
-      <label class="f"><span>วันที่ยืม *</span><input class="inp" type="date" name="borrowDate" required value="${d0}" ${staff ? "" : `min="${t}"`}></label>
-      <label class="f"><span>กำหนดคืน *</span><input class="inp" type="date" name="dueDate" required value="${d0}" min="${d0}"></label>
-      <h2 class="full fh">3. อุปกรณ์ <small id="sel-sum"></small></h2>
-      <div class="full"><input class="inp sm" type="search" id="pick-q" placeholder="ค้นหาอุปกรณ์" style="width:min(260px,100%);margin-bottom:10px" aria-label="ค้นหาอุปกรณ์"><div id="picker"></div></div>
-      <label class="f full"><span>รายละเอียดเพิ่มเติม</span><textarea class="inp" name="note" rows="3" maxlength="600" placeholder="เช่น ใช้ถ่ายงานกีฬาสี ต้องการแบตเตอรี่สำรอง"></textarea></label>
-      <div class="full form-actions"><a class="btn ghost" href="#/">ยกเลิก</a><button class="btn" type="submit">${staff ? "บันทึกการยืม" : "ส่งคำขอยืม"}</button></div>
+      <label class="f full"><span>รายละเอียดเพิ่มเติม</span><textarea class="inp" name="note" rows="3" maxlength="600" placeholder="เช่น ใช้ถ่ายงานกีฬาสี"></textarea></label>
+      <div class="full form-actions"><a class="btn ghost" href="#/items">ยกเลิก</a><button class="btn" type="submit">${staff ? "บันทึกการยืม" : "ส่งคำขอยืม"}</button></div>
     </form></div></div>`;
-  const f = $("#bf", el), picker = $("#picker", el);
+  const f = $("#bf", el), selEl = $("#sel", el), kitEl = $("#kit", el), addEl = $("#add-item", el);
   if (staff) wireTypeFields(f);
   const range = () => [f.elements.borrowDate.value || t, f.elements.dueDate.value || f.elements.borrowDate.value || t];
-  function paint() {
-    const [a, b] = range();
-    const q = $("#pick-q", el).value.trim().toLowerCase();
-    const byCat = new Map();
-    usable.filter((it) => !q || `${it.name} ${it.code || ""}`.toLowerCase().includes(q) || qty.has(it.id))
-      .forEach((it) => { const c = it.category || "อื่น ๆ"; if (!byCat.has(c)) byCat.set(c, []); byCat.get(c).push(it); });
-    picker.innerHTML = [...byCat.entries()].map(([c, its]) => `<div class="pick-cat">${catIcon(c)} ${esc(c)}</div>` + its.map((it) => {
-      const av = availableIn(it, active, a, b), n = qty.get(it.id) || 0, ok = canBorrow(it);
-      if (!ok) qty.delete(it.id);
-      else if (n > av) { if (av) qty.set(it.id, av); else qty.delete(it.id); }
-      const cur = qty.get(it.id) || 0;
-      return `<div class="pick${cur ? " on" : ""}${!ok || !av ? " off" : ""}" data-id="${it.id}">
-        <div class="pick-body"><b>${esc(it.name)}</b><span>${esc(it.code || "")}${!ok ? " · เฉพาะครู / บุคลากร" : ""}</span></div>
-        <span class="pick-av${av ? "" : " none"}">${av ? `ว่าง ${av}` : "ไม่ว่าง"}</span>
-        <div class="stepper"><button type="button" data-d="-1" aria-label="ลดจำนวน" ${cur ? "" : "disabled"}>−</button><span>${cur}</span><button type="button" data-d="1" aria-label="เพิ่มจำนวน" ${ok && cur < av ? "" : "disabled"}>+</button></div></div>`;
-    }).join("")).join("") || `<p class="muted-p">ไม่พบอุปกรณ์</p>`;
-    $$(".pick", picker).forEach((row) => $$("[data-d]", row).forEach((btn) => (btn.onclick = () => {
-      const id = row.dataset.id, n = Math.max(0, (qty.get(id) || 0) + Number(btn.dataset.d));
-      if (n) qty.set(id, n); else qty.delete(id);
-      paint();
-    })));
-    const units = [...qty.values()].reduce((s, x) => s + x, 0);
-    $("#sel-sum", el).textContent = units ? `เลือกแล้ว ${qty.size} รายการ ${units} ชิ้น` : "";
+  const avail = (it) => { const [a, b] = range(); return availableIn(it, active, a, b); };
+  const freeNos = (it) => { const [a, b] = range(); const used = usedNos(it.id, active, a, b); return nosOf(it).filter((n) => !used.has(n)); };
+  // เพิ่มอุปกรณ์ลงรายการ (ชิ้นที่มีหมายเลข เลือกเบอร์ว่างเบอร์แรกให้)
+  function addItem(id) {
+    const it = byId.get(id);
+    if (!it || sel.has(id) || !canBorrow(it)) return false;
+    if (nosOf(it).length) { const fn = freeNos(it); if (!fn.length) return false; sel.set(id, { qty: 1, nos: new Set([fn[0]]) }); }
+    else { if (!avail(it)) return false; sel.set(id, { qty: 1, nos: new Set() }); }
+    return true;
   }
+  const pre = params.get("item");
+  if (pre && !addItem(pre) && byId.has(pre)) setTimeout(() => toast(canBorrow(byId.get(pre)) ? "อุปกรณ์นี้ไม่ว่างในวันที่เลือก ลองเปลี่ยนวันที่" : "อุปกรณ์นี้ให้ยืมเฉพาะครู / บุคลากร", true), 300);
+
+  function paint() {
+    // ปรับรายการที่เลือกให้สอดคล้องกับวันที่ (ตัดเบอร์/จำนวนที่ไม่ว่างออก)
+    for (const [id, s] of sel) {
+      const it = byId.get(id);
+      if (nosOf(it).length) { const fn = new Set(freeNos(it)); [...s.nos].forEach((n) => !fn.has(n) && s.nos.delete(n)); s.qty = s.nos.size; }
+      else s.qty = Math.min(s.qty, avail(it));
+    }
+    const rows = [...sel.keys()].map((id) => byId.get(id)).sort((a, b) => (kindOf(a) === "camera" ? -1 : 0) - (kindOf(b) === "camera" ? -1 : 0));
+    selEl.innerHTML = rows.length ? rows.map((it) => {
+      const s = sel.get(it.id), av = avail(it), nos = nosOf(it);
+      const fn = nos.length ? new Set(freeNos(it)) : null;
+      return `<div class="sel-row${s.qty ? "" : " warn"}" data-id="${it.id}">
+        <div class="sel-media">${it.thumb ? `<img src="${it.thumb}" alt="">` : `<span>${catIcon(it.category)}</span>`}</div>
+        <div class="pick-body"><b>${esc(it.name)}</b><span>${[it.model, it.code].filter(Boolean).map(esc).join(" · ")}${it.model || it.code ? " · " : ""}<span class="pick-av${av ? "" : " none"}">${av ? `ว่าง ${av}` : "ไม่ว่างในวันที่เลือก"}</span></span></div>
+        ${nos.length ? "" : `<div class="stepper"><button type="button" data-d="-1" aria-label="ลดจำนวน" ${s.qty > 1 ? "" : "disabled"}>−</button><span>${s.qty}</span><button type="button" data-d="1" aria-label="เพิ่มจำนวน" ${s.qty < av ? "" : "disabled"}>+</button></div>`}
+        <button type="button" class="icon-btn" data-rm aria-label="นำ ${esc(it.name)} ออก">✕</button>
+        ${nos.length ? `<div class="nos"><span class="nos-lb">เลือกหมายเลข:</span>${nos.map((n) => `<button type="button" class="no${s.nos.has(n) ? " on" : ""}" data-no="${esc(n)}" ${fn.has(n) ? "" : "disabled title='ถูกยืมในช่วงนี้'"}>#${esc(n)}</button>`).join("")}</div>` : ""}
+      </div>`;
+    }).join("") : `<div class="sel-empty">ยังไม่ได้เลือกอุปกรณ์ — เลือกจากรายการด้านล่าง หรือกด “ยืม” จากหน้า <a href="#/items">สถานะอุปกรณ์</a></div>`;
+    $$(".sel-row", selEl).forEach((row) => {
+      const id = row.dataset.id, s = sel.get(id);
+      $("[data-rm]", row).onclick = () => { sel.delete(id); paint(); };
+      $$("[data-d]", row).forEach((b) => (b.onclick = () => { s.qty = Math.max(1, s.qty + Number(b.dataset.d)); paint(); }));
+      $$("[data-no]", row).forEach((b) => (b.onclick = () => { const n = b.dataset.no; s.nos.has(n) ? s.nos.delete(n) : s.nos.add(n); s.qty = s.nos.size; paint(); }));
+    });
+
+    // อุปกรณ์เสริมสำหรับกล้อง
+    const hasCamera = rows.some((it) => kindOf(it) === "camera");
+    const KIT = [["lens", "เลนส์", "ไม่ยืมเลนส์เพิ่ม"], ["flash", "ใช้แฟลชไหม", "ไม่ใช้แฟลช"], ["battery", "แบตเตอรี่", "ไม่ยืมแบตเพิ่ม"], ["memory", "การ์ดหน่วยความจำ", "ไม่ยืมเมม"]];
+    const kitOpts = (k) => usable.filter((it) => kindOf(it) === k && canBorrow(it));
+    kitEl.innerHTML = hasCamera ? `<div class="kit"><div class="kit-h">📷 อุปกรณ์เสริมสำหรับกล้อง</div><div class="kit-grid">${KIT.map(([k, label, none]) => {
+      const items = kitOpts(k), cur = items.filter((it) => sel.has(it.id)).map((it) => it.id);
+      return `<label class="f"><span>${label}</span><select class="inp" data-kit="${k}" ${items.length ? "" : "disabled"}>
+        <option value="">${items.length ? none : `ยังไม่มี${label.replace("ใช้", "").replace("ไหม", "")}ในระบบ`}</option>
+        ${items.map((it) => { const av = nosOf(it).length ? freeNos(it).length : avail(it); return `<option value="${it.id}"${cur[0] === it.id ? " selected" : ""}${av || sel.has(it.id) ? "" : " disabled"}>${esc(it.name)}${it.model ? ` — ${esc(it.model)}` : ""} (ว่าง ${av})</option>`; }).join("")}
+        ${cur.length > 1 ? `<option value="__multi" selected>เลือกไว้ ${cur.length} รายการ</option>` : ""}</select></label>`;
+    }).join("")}</div><p class="hint" style="text-align:left;margin-top:8px">แบตและเมมที่มีเบอร์ เลือกหมายเลขได้ในรายการด้านบน</p></div>` : "";
+    $$("[data-kit]", kitEl).forEach((s) => (s.onchange = () => {
+      const k = s.dataset.kit, v = s.value;
+      if (v === "__multi") return;
+      kitOpts(k).forEach((it) => sel.delete(it.id));
+      if (v && !addItem(v)) toast("อุปกรณ์นี้ไม่ว่างในวันที่เลือก", true);
+      paint();
+    }));
+
+    // dropdown เพิ่มอุปกรณ์อื่น
+    const groups = new Map();
+    usable.filter((it) => !sel.has(it.id)).forEach((it) => { const c = it.category || "อื่น ๆ"; if (!groups.has(c)) groups.set(c, []); groups.get(c).push(it); });
+    addEl.innerHTML = `<option value="">＋ ${rows.length ? "เพิ่มอุปกรณ์อื่น" : "เลือกอุปกรณ์ที่ต้องการยืม"}…</option>` + [...groups.entries()].map(([c, its]) =>
+      `<optgroup label="${catIcon(c)} ${esc(c)}">${its.map((it) => { const ok = canBorrow(it), av = nosOf(it).length ? freeNos(it).length : avail(it);
+        return `<option value="${it.id}" ${ok && av ? "" : "disabled"}>${esc(it.name)}${it.model ? ` — ${esc(it.model)}` : ""} · ${!ok ? "เฉพาะครู" : av ? `ว่าง ${av}` : "ไม่ว่าง"}</option>`; }).join("")}</optgroup>`).join("");
+    addEl.disabled = !groups.size;
+
+    const units = [...sel.values()].reduce((s, x) => s + x.qty, 0);
+    $("#sel-sum", el).textContent = units ? `เลือกแล้ว ${sel.size} รายการ ${units} ชิ้น` : "";
+  }
+  addEl.onchange = () => { if (addEl.value && !addItem(addEl.value)) toast("อุปกรณ์นี้ไม่ว่างในวันที่เลือก", true); paint(); };
   f.elements.borrowDate.onchange = () => {
     const a = f.elements.borrowDate.value;
     f.elements.dueDate.min = a;
@@ -672,27 +800,34 @@ async function borrow(el, params) {
     paint();
   };
   f.elements.dueDate.onchange = paint;
-  $("#pick-q", el).oninput = paint;
   paint();
+
   f.onsubmit = async (e) => {
     e.preventDefault();
     if (!f.reportValidity()) return;
     const [a, b] = range();
     if (b < a) return toast("กำหนดคืนต้องไม่ก่อนวันที่ยืม", true);
-    if (!qty.size) return toast("กรุณาเลือกอุปกรณ์อย่างน้อย 1 รายการ", true);
+    const chosen = [...sel].filter(([, s]) => s.qty > 0);
+    if (!chosen.length) return toast("กรุณาเลือกอุปกรณ์อย่างน้อย 1 รายการ", true);
+    const empty = [...sel].find(([, s]) => !s.qty);
+    if (empty) return toast(`"${byId.get(empty[0]).name}" ยังไม่ได้เลือกหมายเลข/จำนวน (หรือกด ✕ เพื่อนำออก)`, true);
     const btn = $("button[type=submit]", f);
     btn.disabled = true;
     try {
       const fresh = await activeLoans();
-      for (const [id, n] of qty) {
-        const it = usable.find((x) => x.id === id);
+      for (const [id, s] of chosen) {
+        const it = byId.get(id);
         if (!canBorrow(it)) { btn.disabled = false; return toast(`"${it.name}" ให้ยืมเฉพาะครู / บุคลากร`, true); }
+        const used = usedNos(id, fresh, a, b), clash = [...s.nos].filter((n) => used.has(n));
         const av = availableIn(it, fresh, a, b);
-        if (n > av) { btn.disabled = false; active.splice(0, active.length, ...fresh); paint(); return toast(`"${it.name}" ว่างเพียง ${av} ชิ้นในช่วงวันที่เลือก`, true); }
+        if (clash.length || s.qty > av) {
+          btn.disabled = false; active.splice(0, active.length, ...fresh); paint();
+          return toast(clash.length ? `"${it.name}" หมายเลข #${clash.join(", #")} เพิ่งถูกยืมไป กรุณาเลือกใหม่` : `"${it.name}" ว่างเพียง ${av} ชิ้นในช่วงวันที่เลือก`, true);
+        }
       }
       const v = Object.fromEntries(new FormData(f));
       const p = staff ? readProfile(f) : u;
-      const lineItems = [...qty].map(([id, n]) => { const it = usable.find((x) => x.id === id); return { itemId: id, name: it.name, category: it.category || "อื่น ๆ", code: it.code || "", qty: n }; });
+      const lineItems = chosen.map(([id, s]) => { const it = byId.get(id); return { itemId: id, name: it.name, model: it.model || "", category: it.category || "อื่น ๆ", kind: kindOf(it), code: it.code || "", qty: s.qty, nos: [...s.nos] }; });
       const loan = {
         uid: u.uid, borrowerName: staff ? v.borrowerName.trim() : u.name, borrowerType: p.type || "teacher",
         classroom: p.classroom || "", studentNo: p.studentNo || "", department: p.department || "",
@@ -762,7 +897,7 @@ async function showLoan(l, onChange) {
   const m = openModal("รายละเอียดการยืม", `<dl class="dl">
       <dt>สถานะ</dt><dd>${stBadge(l)}${l.reason ? ` <span style="color:var(--ink-2)">${esc(l.reason)}</span>` : ""}</dd>
       <dt>ผู้ยืม</dt><dd>${who(l)}${contact?.phone ? `<div><a href="tel:${esc(contact.phone)}">${esc(contact.phone)}</a></div>` : ""}</dd>
-      <dt>อุปกรณ์</dt><dd>${(l.items || []).map((x) => `${catIcon(x.category)} ${esc(x.name)}${x.code ? ` <span class="muted">(${esc(x.code)})</span>` : ""} × ${x.qty}`).join("<br>")}</dd>
+      <dt>อุปกรณ์</dt><dd>${(l.items || []).map((x) => `${catIcon(x.category)} ${esc(x.name)}${x.model ? ` <span class="muted">${esc(x.model)}</span>` : ""}${x.code ? ` <span class="muted">(${esc(x.code)})</span>` : ""} ${x.nos?.length ? `· หมายเลข #${x.nos.map(esc).join(", #")}` : `× ${x.qty}`}`).join("<br>")}</dd>
       <dt>วันที่ยืม</dt><dd>${thDateLong(l.borrowDate)}</dd><dt>กำหนดคืน</dt><dd>${thDateLong(l.dueDate)}${isOverdue(l) ? ` <b style="color:var(--red)">(เกิน ${daysBetween(l.dueDate, today())} วัน)</b>` : ""}</dd>
       ${l.status === "returned" ? `<dt>คืนเมื่อ</dt><dd>${thDateLong(l.returnedDate)}${l.returnNote ? `<div class="muted">${esc(l.returnNote)}</div>` : ""}</dd>` : ""}
       <dt>ใช้สำหรับ</dt><dd>${esc(l.purpose) || "–"}</dd><dt>รายละเอียด</dt><dd>${esc(l.note) || "–"}</dd>
@@ -793,7 +928,10 @@ async function decide(l, status) {
       const [fresh, list] = await Promise.all([activeLoans(), getItems(true)]);
       const short = (l.items || []).map((x) => {
         const it = list.find((i) => i.id === x.itemId);
-        const av = it ? availableIn(it, fresh.filter((o) => o.status === "approved"), l.borrowDate, l.dueDate, l.id) : 0;
+        const approved = fresh.filter((o) => o.status === "approved");
+        const av = it ? availableIn(it, approved, l.borrowDate, l.dueDate, l.id) : 0;
+        const used = usedNos(x.itemId, approved, l.borrowDate, l.dueDate, l.id), clash = (x.nos || []).filter((n) => used.has(n));
+        if (clash.length) return `${x.name}: หมายเลข #${clash.join(", #")} ถูกยืมอยู่`;
         return av < x.qty ? `${x.name}: ว่าง ${av} ต้องการ ${x.qty}` : null;
       }).filter(Boolean);
       if (short.length && !confirm(`อุปกรณ์ไม่พอในช่วงวันที่นี้\n${short.join("\n")}\n\nอนุมัติต่อหรือไม่?`)) return false;
@@ -813,7 +951,7 @@ function receiveReturn(l) {
         <p class="note info" style="margin:0">${esc(l.borrowerName)} · ${esc(itemsText(l))}</p>
         <label class="f"><span>วันที่คืน *</span><input class="inp" type="date" name="returnedDate" required value="${today() < l.borrowDate ? l.borrowDate : today()}" min="${l.borrowDate}"></label>
         <fieldset><legend>อุปกรณ์ที่ชำรุด / มีปัญหา (ถ้ามี ระบบจะเปลี่ยนสภาพเป็น "ชำรุด")</legend>
-          ${(l.items || []).map((x) => `<label class="f check"><input type="checkbox" name="damaged" value="${x.itemId}"> ${esc(x.name)}</label>`).join("")}</fieldset>
+          ${(l.items || []).map((x) => `<label class="f check"><input type="checkbox" name="damaged" value="${x.itemId}"> ${esc(lineText(x))}</label>`).join("")}</fieldset>
         <label class="f"><span>บันทึกการคืน</span><input class="inp" name="returnNote" maxlength="200" placeholder="เช่น คืนครบ สภาพดี"></label>
         <div class="form-actions"><button type="button" class="btn ghost" data-x>ยกเลิก</button><button class="btn ok" type="submit">ยืนยันรับคืน</button></div></form>`);
     m.onClose = () => res(false);

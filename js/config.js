@@ -79,12 +79,19 @@ export const CATEGORIES = [
   { name: "อื่น ๆ", icon: "📦" },
 ];
 
+// ประเภทพิเศษสำหรับชุดกล้อง: เมื่อยืม "กล้อง" ระบบจะถามเลนส์ แฟลช แบตเตอรี่ และการ์ดหน่วยความจำ
+export const KINDS = { "": "ทั่วไป", camera: "กล้อง (ถามเลนส์/แฟลช/แบต/เมม ตอนยืม)", lens: "เลนส์", flash: "แฟลช", battery: "แบตเตอรี่", memory: "การ์ดหน่วยความจำ" };
+
 // สภาพอุปกรณ์
 export const CONDITIONS = ["พร้อมใช้งาน", "ชำรุด", "ส่งซ่อม"];
 
 // อุปกรณ์ตัวอย่าง (ใช้ตอนกดปุ่ม "เพิ่มอุปกรณ์ตัวอย่าง" เมื่อยังไม่มีอุปกรณ์ในระบบ และในโหมดตัวอย่าง)
 export const DEFAULT_ITEMS = [
-  { name: "กล้องถ่ายภาพ DSLR", category: "กล้องและอุปกรณ์ถ่ายภาพ", code: "CAM-01", quantity: 2 },
+  { name: "กล้องถ่ายภาพ DSLR", category: "กล้องและอุปกรณ์ถ่ายภาพ", kind: "camera", code: "CAM-01", quantity: 2 },
+  { name: "เลนส์ 18-55mm", category: "กล้องและอุปกรณ์ถ่ายภาพ", kind: "lens", code: "LENS-01", quantity: 2 },
+  { name: "แฟลช", category: "กล้องและอุปกรณ์ถ่ายภาพ", kind: "flash", code: "FL-01", quantity: 1 },
+  { name: "แบตเตอรี่กล้อง", category: "กล้องและอุปกรณ์ถ่ายภาพ", kind: "battery", code: "BAT", nos: ["1", "2", "3", "4"], quantity: 4 },
+  { name: "การ์ดหน่วยความจำ", category: "กล้องและอุปกรณ์ถ่ายภาพ", kind: "memory", code: "SD", nos: ["1", "2", "3"], quantity: 3 },
   { name: "กล้องวิดีโอ", category: "กล้องและอุปกรณ์ถ่ายภาพ", code: "VDO-01", quantity: 1 },
   { name: "Notebook", category: "คอมพิวเตอร์และแท็บเล็ต", code: "NB-01", quantity: 3 },
   { name: "Apple TV", category: "จอภาพและการนำเสนอ", code: "ATV-01", quantity: 2 },
