@@ -3,7 +3,7 @@ import { store, isDemo, USERNAME_RE } from "./store.js";
 import {
   $, $$, esc, pad, ymd, parseYmd, today, addDays, daysBetween, thDate, thDateLong, thShort, money, num, fiscalYearOf, fiscalRange, fiscalLabel,
   mondayOf, typeLabel, shortType, catIcon, catOrder, LOAN_STATUS, ITEM_STATUS, isOverdue, loanState, ACTIVE, loanUnits, itemsText,
-  loanOn, loanEnd, lineText, extrasText, itemStatus, availableIn, computeStats, sortedEntries, monthShort, weekLabel, inAppBrowser,
+  loanOn, loanEnd, lineText, extrasText, itemStatus, holdIn, holdOn, HOLD_KINDS, availableIn, computeStats, sortedEntries, monthShort, weekLabel, inAppBrowser,
 } from "./util.js";
 import { exportLoanReport, exportBudgetReport } from "./report.js";
 
@@ -374,6 +374,7 @@ async function home(el) {
   const pending = active.filter((l) => l.status === "pending");
   const overdue = active.filter((l) => isOverdue(l, t));
   const outNow = active.filter((l) => l.status === "approved" && l.borrowDate <= t).sort((a, b) => a.dueDate.localeCompare(b.dueDate));
+  const heldNow = itemsList.map((it, i) => ({ it, s: sts[i] })).filter((x) => x.s.held > 0);
   el.innerHTML = `
     <div class="wrap"><div class="page-head head-row">
       <div><h1>สวัสดี ${esc((state.user.name || "").split(" ")[0])}</h1><p>${thDateLong(t)}</p></div>
@@ -388,7 +389,9 @@ async function home(el) {
         <div class="kpi${overdue.length ? " kpi-alert" : ""}"><div class="k">เกินกำหนดคืน</div><div class="v">${overdue.length}<small>รายการ</small></div></div>
       </div>
       <div class="card" style="margin-bottom:16px"><h2>อุปกรณ์ที่ถูกยืมอยู่ขณะนี้</h2><p class="sub">${outNow.length ? `${outNow.length} รายการ เรียงตามกำหนดคืน` : "ไม่มีอุปกรณ์ที่ถูกยืมอยู่"}</p>
-        ${outNow.length ? loanTable(outNow, { showStatus: true }) : ""}</div>
+        ${outNow.length ? loanTable(outNow, { showStatus: true }) : ""}
+        ${heldNow.length ? `<div class="held-list"><div class="held-h">อุปกรณ์ที่โสตใช้งาน / ไม่ว่าง</div>${heldNow.map(({ it, s }) => `<div class="held-item"><span>${catIcon(it.category)}</span><b>${esc(it.name)}</b>${s.held < s.qty ? ` <span class="muted">${s.held}/${s.qty} ชิ้น</span>` : ""}
+          <span class="st ${ITEM_STATUS[s.hold.kind].cls}">${HOLD_KINDS[s.hold.kind]}</span><span class="muted">${[s.hold.note && esc(s.hold.note), s.hold.until && "ถึง " + thShort(s.hold.until)].filter(Boolean).join(" · ")}</span></div>`).join("")}</div>` : ""}</div>
       <div class="home-grid">
         <div class="card" id="cal-card"></div>
         <div class="card" id="day-card"></div>
@@ -493,8 +496,9 @@ async function items(el) {
     const t = today();
     const rows = list.map((it) => ({ it, s: itemStatus(it, active, t) }));
     const cats = [...new Set([...CATEGORIES.map((c) => c.name), ...list.map((x) => x.category)])].filter((c) => list.some((x) => x.category === c));
-    const count = (k) => rows.filter((r) => (k === "pend" ? r.s.pend > 0 : r.s.key === k || (k === "out" && r.s.key === "partial"))).length;
-    const FILTERS = [["", "ทั้งหมด", rows.length], ["free", "ว่าง", count("free")], ["out", "ถูกยืม", count("out")], ["pend", "รออนุมัติ", count("pend")], ["broken", "ชำรุด/ซ่อม", count("broken")]];
+    const match = (s, k) => (k === "pend" ? s.pend > 0 : k === "hold" ? s.held > 0 : k === "out" ? s.out > 0 : s.key === k);
+    const count = (k) => rows.filter((r) => match(r.s, k)).length;
+    const FILTERS = [["", "ทั้งหมด", rows.length], ["free", "ว่าง", count("free")], ["out", "ถูกยืม", count("out")], ["pend", "รออนุมัติ", count("pend")], ["hold", "โสตใช้/ไม่ว่าง", count("hold")], ["broken", "ชำรุด/ซ่อม", count("broken")]];
     host.innerHTML = list.length ? `
       <div class="toolbar">
         <input class="inp sm" type="search" id="it-q" placeholder="ค้นหาชื่อหรือรหัสอุปกรณ์" value="${esc(itemState.q)}" style="width:min(260px,100%)" aria-label="ค้นหาอุปกรณ์">
@@ -515,7 +519,7 @@ async function items(el) {
       const q = itemState.q.trim().toLowerCase();
       const shown = rows.filter(({ it, s }) =>
         (!q || `${it.name} ${it.code || ""} ${it.location || ""}`.toLowerCase().includes(q)) && (!itemState.cat || it.category === itemState.cat) &&
-        (!itemState.st || (itemState.st === "pend" ? s.pend > 0 : itemState.st === "out" ? s.key === "out" || s.key === "partial" : s.key === itemState.st)));
+        (!itemState.st || match(s, itemState.st)));
       const byCat = new Map();
       shown.forEach((r) => { const c = r.it.category || "อื่น ๆ"; if (!byCat.has(c)) byCat.set(c, []); byCat.get(c).push(r); });
       groups.innerHTML = shown.length ? [...byCat.entries()].map(([c, rs]) => `
@@ -529,6 +533,7 @@ async function items(el) {
           if (!b) return itemDetail(r.it, r.s, () => draw().catch(fail));
           if (b.dataset.a === "borrow") location.hash = `#/borrow?item=${r.it.id}`;
           if (b.dataset.a === "edit") itemForm(r.it, () => draw().catch(fail));
+          if (b.dataset.a === "hold") holdForm(r.it, () => draw().catch(fail));
         };
       });
     };
@@ -583,8 +588,9 @@ function itemCard(it, s) {
     <div class="meter" aria-hidden="true"><span style="width:${pct}%"></span></div>
     <div class="icard-row"><span>ว่าง <b>${s.free}</b> / ${s.qty} ${nosOf(it).length ? "ชิ้น (มีหมายเลข)" : "ชิ้น"}</span>${s.pend ? `<span class="st st-pending">รออนุมัติ ${s.pend}</span>` : ""}</div>
     ${h ? `<div class="icard-who">ยืมโดย ${esc(h.borrowerName)} · คืน ${thShort(h.dueDate)}${s.holders.length > 1 ? ` และอีก ${s.holders.length - 1}` : ""}</div>` : ""}
+    ${s.hold ? `<div class="icard-hold">${s.hold.kind === "av" ? "🎬" : "⛔"} ${HOLD_KINDS[s.hold.kind]}${s.held < s.qty ? ` ${s.held} ชิ้น` : ""}${s.hold.note ? ` · ${esc(s.hold.note)}` : ""}${s.hold.until ? ` · ถึง ${thShort(s.hold.until)}` : ""}</div>` : ""}
     ${it.allowStudents === false ? `<div class="tags"><span class="tag">เฉพาะครู / บุคลากร</span></div>` : ""}
-    <div class="icard-acts">${!s.broken && canBorrow(it) ? `<button class="btn sm" data-a="borrow">ยืม</button>` : ""}${isStaff() ? `<button class="btn ghost sm" data-a="edit">แก้ไข</button>` : ""}</div>
+    <div class="icard-acts">${!s.broken && canBorrow(it) ? `<button class="btn sm" data-a="borrow">ยืม</button>` : ""}${isStaff() ? `<button class="btn ghost sm" data-a="hold">สถานะ</button><button class="btn ghost sm" data-a="edit">แก้ไข</button>` : ""}</div>
   </div>`;
 }
 async function itemDetail(it, s, onChange) {
@@ -609,10 +615,48 @@ async function itemDetail(it, s, onChange) {
       <dt>ผู้ยืมได้</dt><dd>${it.allowStudents === false ? "เฉพาะครู / บุคลากร" : "ครูและนักเรียน"}</dd><dt>รายละเอียด</dt><dd>${esc(it.note) || "–"}</dd></dl>
     <h3 class="mh">กำลังยืม / รออนุมัติ</h3>${current.length ? `<div class="day-list">${current.map(line).join("")}</div>` : `<p class="muted-p">ไม่มี</p>`}
     <h3 class="mh">ประวัติล่าสุด</h3>${past.length ? `<div class="day-list">${past.map(line).join("")}</div>` : `<p class="muted-p">ยังไม่มีประวัติการยืม</p>`}
-    <div class="form-actions" style="margin-top:18px">${isStaff() ? `<button class="btn ghost" data-edit>แก้ไขอุปกรณ์</button>` : ""}${!s.broken && canBorrow(it) ? `<a class="btn" href="#/borrow?item=${it.id}">ยืมอุปกรณ์นี้</a>` : ""}</div>`);
+    ${s.hold ? `<p class="note warn" style="margin-top:14px">${HOLD_KINDS[s.hold.kind]}${s.held < s.qty ? ` ${s.held} ชิ้น` : ""}${s.hold.note ? ` — ${esc(s.hold.note)}` : ""}${s.hold.until ? ` (ถึง ${thDate(s.hold.until)})` : ""}${s.hold.by ? ` · ตั้งโดย ${esc(s.hold.by)}` : ""}</p>` : ""}
+    <div class="form-actions" style="margin-top:18px">${isStaff() ? `<button class="btn ghost" data-hold>ตั้งสถานะ</button><button class="btn ghost" data-edit>แก้ไขอุปกรณ์</button>` : ""}${!s.broken && canBorrow(it) ? `<a class="btn" href="#/borrow?item=${it.id}">ยืมอุปกรณ์นี้</a>` : ""}</div>`);
   $$("[data-loan]", m.el).forEach((x) => (x.onclick = () => { m.close(); showLoan(history.find((l) => l.id === x.dataset.loan), onChange); }));
   const ed = $("[data-edit]", m.el);
   if (ed) ed.onclick = () => { m.close(); itemForm(it, onChange); };
+  const hb = $("[data-hold]", m.el);
+  if (hb) hb.onclick = () => { m.close(); holdForm(it, onChange); };
+}
+// พนักงานโสตตั้งสถานะอุปกรณ์เอง: ว่าง / ไม่ว่าง / โสตใช้อุปกรณ์
+function holdForm(it, done) {
+  const h = it.hold || {}, cur = HOLD_KINDS[h.kind] ? h.kind : "";
+  const numbered = nosOf(it).length > 0, multi = !numbered && Number(it.quantity) > 1;
+  const m = openModal(`ตั้งสถานะ: ${it.name}`, `<form class="form" id="hf" novalidate style="grid-template-columns:1fr 1fr">
+      <fieldset class="full"><legend>สถานะ</legend><div class="chips">
+        ${[["", "ว่าง (ให้ยืมได้ตามปกติ)"], ["av", "🎬 โสตใช้อุปกรณ์"], ["busy", "⛔ ไม่ว่าง"]].map(([k, l]) => `<label class="chip"><input type="radio" name="kind" value="${k}"${cur === k ? " checked" : ""}><span>${l}</span></label>`).join("")}</div></fieldset>
+      <div class="full hold-extra" ${cur ? "" : "hidden"}><div class="form" style="gap:12px 18px">
+        ${multi ? `<label class="f"><span>จำนวนที่ใช้ (จาก ${it.quantity} ชิ้น)</span><input class="inp" type="number" name="qty" min="1" max="${it.quantity}" value="${esc(h.qty || it.quantity)}"></label>` : ""}
+        ${numbered ? `<p class="note info full" style="margin:0">อุปกรณ์ที่มีหมายเลข จะไม่ว่างทุกเบอร์</p>` : ""}
+        <label class="f"><span>ตั้งแต่วันที่ <small>(เว้นว่าง = วันนี้)</small></span><input class="inp" type="date" name="from" value="${esc(h.from || "")}"></label>
+        <label class="f"><span>ถึงวันที่ <small>(เว้นว่าง = จนกว่าจะเปลี่ยนเป็น “ว่าง”)</small></span><input class="inp" type="date" name="until" value="${esc(h.until || "")}"></label>
+        <label class="f full"><span>หมายเหตุ</span><input class="inp" name="note" maxlength="120" value="${esc(h.note || "")}" placeholder="เช่น ออกงานกีฬาสี, ถ่ายงานวันครู"></label>
+      </div></div>
+      <p class="hint full" style="text-align:left">ระหว่างนี้ผู้อื่นจะยืมอุปกรณ์ส่วนที่กันไว้ไม่ได้ เมื่อเลยวันที่ “ถึงวันที่” ระบบจะกลับเป็นว่างเอง</p>
+      <div class="full form-actions"><button type="button" class="btn ghost" data-x>ยกเลิก</button><button class="btn" type="submit">บันทึกสถานะ</button></div></form>`);
+  const f = $("#hf", m.el);
+  $("[data-x]", m.el).onclick = m.dismiss;
+  $$("input[name=kind]", f).forEach((r) => (r.onchange = () => { $(".hold-extra", f).hidden = !f.querySelector("input[name=kind]:checked").value; }));
+  f.onsubmit = async (e) => {
+    e.preventDefault();
+    const v = Object.fromEntries(new FormData(f));
+    if (v.kind && v.from && v.until && v.until < v.from) return toast("“ถึงวันที่” ต้องไม่ก่อน “ตั้งแต่วันที่”", true);
+    const hold = v.kind ? { kind: v.kind, note: (v.note || "").trim(), from: v.from || "", until: v.until || "", qty: multi ? Math.min(Number(it.quantity), Math.max(1, parseInt(v.qty, 10) || Number(it.quantity))) : Number(it.quantity), by: state.user.name, at: Date.now() } : null;
+    try {
+      if (hold) {
+        const t = today(), a = hold.from || t, b = hold.until || addDays(t, 365);
+        const clash = (await activeLoans()).filter((l) => l.status === "approved" && (l.itemIds || []).includes(it.id) && l.borrowDate <= b && loanEnd(l, t) >= a);
+        if (clash.length && !confirm(`ช่วงเวลานี้มีผู้ยืม “${it.name}” อยู่แล้ว ${clash.length} รายการ\n${clash.map((l) => `${l.borrowerName} (${dateRange(l)})`).join("\n")}\n\nตั้งสถานะต่อหรือไม่? (รายการยืมเดิมไม่ถูกยกเลิก)`)) return;
+      }
+      await store.update("items", it.id, { hold, updatedAt: Date.now() });
+      state.items = null; m.close(); toast(hold ? `ตั้งเป็น “${HOLD_KINDS[hold.kind]}” แล้ว` : "ตั้งเป็น “ว่าง” แล้ว"); done();
+    } catch (err) { fail(err); }
+  };
 }
 const KIND_HINT = { camera: "กล้อง", lens: "เลนส์", flash: "แฟลช", battery: "แบตเตอรี่", memory: "การ์ดหน่วยความจำ" };
 function itemForm(rec, done, preset = {}) {
@@ -732,7 +776,7 @@ async function borrow(el, params) {
   if (staff) wireTypeFields(f);
   const range = () => [f.elements.borrowDate.value || t, f.elements.dueDate.value || f.elements.borrowDate.value || t];
   const avail = (it) => { const [a, b] = range(); return availableIn(it, active, a, b); };
-  const freeNos = (it) => { const [a, b] = range(); const used = usedNos(it.id, active, a, b); return nosOf(it).filter((n) => !used.has(n)); };
+  const freeNos = (it) => { const [a, b] = range(); if (holdIn(it, a, b)) return []; const used = usedNos(it.id, active, a, b); return nosOf(it).filter((n) => !used.has(n)); };
   // เพิ่มอุปกรณ์ลงรายการ (ชิ้นที่มีหมายเลข เลือกเบอร์ว่างเบอร์แรกให้)
   function addItem(id) {
     const it = byId.get(id);

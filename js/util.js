@@ -94,6 +94,19 @@ export const loanOn = (l, d, t = today()) =>
 const overlapsRange = (l, from, to, t) => l.borrowDate <= to && loanEnd(l, t) >= from;
 
 // สถานะของอุปกรณ์แต่ละรายการ จากรายการยืมที่ยังไม่ปิด (pending/approved)
+// สถานะที่พนักงานโสตตั้งเอง (item.hold): kind = "av" (โสตใช้อุปกรณ์) | "busy" (ไม่ว่าง)
+//   from/until = ช่วงวันที่ (เว้นว่าง = ตั้งแต่วันนี้ / จนกว่าจะเปลี่ยนเป็น "ว่าง"), qty = จำนวนชิ้นที่กันไว้
+export const HOLD_KINDS = { av: "โสตใช้อุปกรณ์", busy: "ไม่ว่าง" };
+export function holdIn(item, from, to) {
+  const h = item.hold;
+  if (!h || !HOLD_KINDS[h.kind]) return 0;
+  const a = h.from || "0000-00-00", b = h.until || "9999-12-31";
+  if (a > to || b < from) return 0;
+  const qty = Number(item.quantity || 0);
+  return (Array.isArray(item.nos) && item.nos.length) ? qty : Math.min(qty, Number(h.qty) || qty);
+}
+export const holdOn = (item, t = today()) => (holdIn(item, t, t) ? item.hold : null);
+
 export function itemStatus(item, activeLoans, t = today()) {
   let out = 0, pend = 0, reserved = 0;
   const holders = [];
@@ -107,18 +120,23 @@ export function itemStatus(item, activeLoans, t = today()) {
   }
   const qty = Number(item.quantity || 0);
   const broken = item.condition && item.condition !== "พร้อมใช้งาน";
-  const free = broken ? 0 : Math.max(0, qty - out);
+  const held = broken ? 0 : holdIn(item, t, t);
+  const hold = held ? item.hold : null;
+  const free = broken ? 0 : Math.max(0, qty - out - held);
   let key = "free";
   if (broken) key = "broken";
+  else if (free === 0 && held) key = hold.kind;
   else if (free === 0) key = "out";
-  else if (out > 0) key = "partial";
-  return { qty, out, pend, reserved, free, key, holders, broken };
+  else if (out > 0 || held > 0) key = "partial";
+  return { qty, out, pend, reserved, free, key, holders, broken, held, hold };
 }
 export const ITEM_STATUS = {
   free: { label: "ว่าง", cls: "st-approved" },
   partial: { label: "ว่างบางส่วน", cls: "st-partial" },
   out: { label: "ถูกยืมทั้งหมด", cls: "st-rejected" },
   broken: { label: "ชำรุด / ส่งซ่อม", cls: "st-cancelled" },
+  av: { label: "โสตใช้อุปกรณ์", cls: "st-av" },
+  busy: { label: "ไม่ว่าง", cls: "st-rejected" },
 };
 
 // จำนวนที่ยังยืมได้ในช่วงวันที่ (นับทั้งรายการที่อนุมัติแล้วและที่กำลังขออนุญาต)
@@ -129,7 +147,7 @@ export function availableIn(item, loans, from, to, excludeId, t = today()) {
     if (l.id === excludeId || !ACTIVE.includes(l.status) || !overlapsRange(l, from, to, t)) continue;
     for (const x of l.items || []) if (x.itemId === item.id) used += x.qty;
   }
-  return Math.max(0, Number(item.quantity || 0) - used);
+  return Math.max(0, Number(item.quantity || 0) - used - holdIn(item, from, to));
 }
 
 // ----- นัดหมายสำหรับ Google Calendar (นัดหมายทั้งวัน ตั้งแต่วันยืมถึงวันกำหนดคืน) -----
