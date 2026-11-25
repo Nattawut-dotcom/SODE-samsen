@@ -2,7 +2,7 @@ import { CONFIG, DEPARTMENTS, PURPOSES, USER_TYPES, CATEGORIES, CONDITIONS, KIND
 import { store, isDemo, USERNAME_RE } from "./store.js";
 import {
   $, $$, esc, pad, ymd, parseYmd, today, addDays, daysBetween, thDate, thDateLong, thShort, money, num, fiscalYearOf, fiscalRange, fiscalLabel,
-  mondayOf, typeLabel, shortType, catIcon, itemIcon, catOrder, LOAN_STATUS, ITEM_STATUS, isOverdue, loanState, ACTIVE, loanUnits, itemsText,
+  mondayOf, typeLabel, shortType, catIcon, itemIcon, studentInfo, academicYearOf, academicRange, catOrder, LOAN_STATUS, ITEM_STATUS, isOverdue, loanState, ACTIVE, loanUnits, itemsText,
   loanOn, loanEnd, lineText, extrasText, itemStatus, holdIn, holdOn, HOLD_KINDS, availableIn, computeStats, sortedEntries, monthShort, weekLabel, inAppBrowser,
 } from "./util.js";
 import { exportLoanReport, exportBudgetReport } from "./report.js";
@@ -87,7 +87,7 @@ const opts = (arr, sel, placeholder) =>
   (placeholder ? `<option value="">${placeholder}</option>` : "") + arr.map((x) => `<option${x === sel ? " selected" : ""}>${esc(x)}</option>`).join("");
 const fmtSize = (n) => (n > 1048576 ? (n / 1048576).toFixed(1) + " MB" : Math.max(1, Math.round(n / 1024)) + " KB");
 const isStaff = () => state.user?.role === "staff";
-const who = (l) => `${esc(l.borrowerName)} ${typeBadge(l.borrowerType)}<div class="muted">${esc(l.borrowerType === "student" ? [l.classroom, l.studentNo && "เลขที่ " + l.studentNo].filter(Boolean).join(" ") : l.department || "")}</div>`;
+const who = (l) => `${esc(l.borrowerName)} ${typeBadge(l.borrowerType)}<div class="muted">${esc(l.borrowerType === "student" ? studentInfo(l) : l.department || "")}</div>`;
 const dateRange = (l) => `${thShort(l.borrowDate)}${l.dueDate !== l.borrowDate ? ` – ${thShort(l.dueDate)}` : ""}`;
 const typeChips = (name, sel) => `<div class="chips">${Object.entries(USER_TYPES).map(([k, v]) => `<label class="chip"><input type="radio" name="${name}" value="${k}"${sel === k ? " checked" : ""} required><span>${v}</span></label>`).join("")}</div>`;
 
@@ -179,7 +179,7 @@ async function render() {
   const params = new URLSearchParams(qs || "");
   let name = ROUTES[path] ? path : "";
   if (!state.user) name = "";
-  else if (!state.user.type) name = "profile"; // ต้องกรอกข้อมูลผู้ใช้ก่อน
+  else if (!state.user.type || (state.user.type === "student" && !state.user.studentId)) name = "profile"; // ต้องกรอกข้อมูลผู้ใช้ (และรหัสนักเรียน) ก่อน
   if (STAFF_ONLY.has(name) && !isStaff()) name = "";
   renderNav(name);
   const el = document.createElement("div");
@@ -203,7 +203,8 @@ const G_LOGO = `<svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="tru
 function typeFields(p = {}) {
   return `<div class="full type-extra" data-for="student" ${p.type === "student" ? "" : "hidden"}><div class="form" style="gap:12px 18px">
       <label class="f"><span>ชั้น / ห้อง *</span><input class="inp" name="classroom" maxlength="20" placeholder="เช่น ม.4/2" value="${esc(p.classroom || "")}"></label>
-      <label class="f"><span>เลขที่</span><input class="inp" name="studentNo" maxlength="5" inputmode="numeric" value="${esc(p.studentNo || "")}"></label></div></div>
+      <label class="f"><span>เลขที่</span><input class="inp" name="studentNo" maxlength="5" inputmode="numeric" value="${esc(p.studentNo || "")}"></label>
+      <label class="f"><span>รหัสนักเรียน *</span><input class="inp" name="studentId" maxlength="10" inputmode="numeric" pattern="[0-9]{3,10}" title="ตัวเลข 3–10 หลัก" placeholder="เช่น 34567" value="${esc(p.studentId || "")}"></label></div></div>
     <label class="f full type-extra" data-for="teacher" ${p.type === "teacher" ? "" : "hidden"}><span>หน่วยงาน / กลุ่มสาระ *</span>
       <select class="inp" name="department">${opts(DEPARTMENTS, p.department, "เลือกหน่วยงาน")}</select></label>`;
 }
@@ -211,8 +212,9 @@ function wireTypeFields(form) {
   const sync = () => {
     const t = form.querySelector("input[name=type]:checked")?.value || "";
     $$(".type-extra", form).forEach((x) => (x.hidden = x.dataset.for !== t));
-    const cls = form.elements.classroom, dep = form.elements.department;
+    const cls = form.elements.classroom, dep = form.elements.department, sid = form.elements.studentId;
     if (cls) cls.required = t === "student";
+    if (sid) sid.required = t === "student";
     if (dep) dep.required = t === "teacher";
   };
   $$("input[name=type]", form).forEach((r) => (r.onchange = sync));
@@ -224,6 +226,7 @@ const readProfile = (form) => {
   return {
     name: (v.name || "").trim(), type: t, phone: (v.phone || "").trim(),
     classroom: t === "student" ? (v.classroom || "").trim() : "", studentNo: t === "student" ? (v.studentNo || "").trim() : "",
+    studentId: t === "student" ? (v.studentId || "").replace(/\s/g, "") : "",
     department: t === "teacher" ? v.department || "" : "",
   };
 };
@@ -316,9 +319,9 @@ function login(el) {
 //  ข้อมูลของฉัน (และกรอกข้อมูลครั้งแรก)
 // ============================================================
 async function profile(el) {
-  const u = state.user, first = !u.type;
+  const u = state.user, needSid = u.type === "student" && !u.studentId, first = !u.type || needSid;
   el.innerHTML = `<div class="wrap narrow"><div class="page-head"><h1>${first ? "กรอกข้อมูลก่อนเริ่มใช้งาน" : "ข้อมูลของฉัน"}</h1>
-      <p>${first ? "ข้อมูลนี้ใช้แสดงในคำขอยืมและสถิติ แยกครูกับนักเรียน" : "แก้ไขข้อมูลที่ใช้ในการยืมอุปกรณ์"}</p></div>
+      <p>${needSid ? "ระบบเพิ่มช่องรหัสนักเรียนแล้ว กรุณากรอกรหัสนักเรียนของคุณหนึ่งครั้งก่อนใช้งานต่อ" : first ? "ข้อมูลนี้ใช้แสดงในคำขอยืมและสถิติ แยกครูกับนักเรียน" : "แก้ไขข้อมูลที่ใช้ในการยืมอุปกรณ์"}</p></div>
     <div class="section">
       <form id="pf" class="form" novalidate>
         <label class="f full"><span>ชื่อ-นามสกุล *</span><input class="inp" name="name" required maxlength="80" value="${esc(u.name)}"></label>
@@ -781,7 +784,7 @@ async function borrow(el, params) {
         <label class="f full"><span>ชื่อผู้ยืม *</span><input class="inp" name="borrowerName" required maxlength="80" value="${esc(u.name)}"></label>
         <fieldset class="full"><legend>ประเภทผู้ยืม *</legend>${typeChips("type", u.type || "teacher")}</fieldset>
         ${typeFields(u)}`
-      : `<div class="full who-card">${esc(u.name)} ${typeBadge(u.type)}<span class="muted">${esc(u.type === "student" ? [u.classroom, u.studentNo && "เลขที่ " + u.studentNo].filter(Boolean).join(" ") : u.department)}</span> <a href="#/profile" class="linkbtn">แก้ไขข้อมูล</a></div>`}
+      : `<div class="full who-card">${esc(u.name)} ${typeBadge(u.type)}<span class="muted">${esc(u.type === "student" ? studentInfo(u) : u.department)}</span> <a href="#/profile" class="linkbtn">แก้ไขข้อมูล</a></div>`}
       <label class="f"><span>เบอร์โทรศัพท์ *</span><input class="inp" name="phone" required inputmode="tel" maxlength="20" value="${esc(u.phone)}" placeholder="08x-xxx-xxxx"></label>
       <label class="f"><span>ใช้สำหรับ *</span><select class="inp" name="purpose" required>${opts(PURPOSES, "", "เลือกวัตถุประสงค์")}</select></label>
       <label class="f full"><span>รายละเอียดเพิ่มเติม</span><textarea class="inp" name="note" rows="3" maxlength="600" placeholder="เช่น ใช้ถ่ายงานกีฬาสี"></textarea></label>
@@ -942,7 +945,7 @@ async function borrow(el, params) {
       const lineItems = chosen.map(([id, s]) => { const it = byId.get(id); return { itemId: id, name: it.name, model: it.model || "", category: it.category || "อื่น ๆ", kind: kindOf(it), code: it.code || "", qty: s.qty, nos: [...s.nos] }; });
       const loan = {
         uid: u.uid, borrowerName: staff ? v.borrowerName.trim() : u.name, borrowerType: p.type || "teacher",
-        classroom: p.classroom || "", studentNo: p.studentNo || "", department: p.department || "",
+        classroom: p.classroom || "", studentNo: p.studentNo || "", studentId: p.studentId || "", department: p.department || "",
         items: lineItems, itemIds: lineItems.map((x) => x.itemId),
         extras: kitEl.innerHTML ? Object.fromEntries(["battery", "memory"].filter((k) => kitOn[k] && !ofKind(k).length && extras[k].trim()).map((k) => [k, extras[k].trim()])) : {},
         borrowDate: a, dueDate: b, purpose: v.purpose, note: v.note.trim(),
@@ -1122,7 +1125,7 @@ async function requests(el) {
     const paint = () => {
       const q = reqState.q.trim().toLowerCase();
       const shown = rows.filter((l) => (!reqState.type || l.borrowerType === reqState.type) &&
-        (!q || `${l.borrowerName} ${l.classroom} ${l.department} ${itemsText(l)}`.toLowerCase().includes(q)))
+        (!q || `${l.borrowerName} ${l.classroom} ${l.studentId || ""} ${l.department} ${itemsText(l)}`.toLowerCase().includes(q)))
         .sort((a, b) => (tab === "pending" ? a.createdAt - b.createdAt : tab === "out" || tab === "overdue" ? a.dueDate.localeCompare(b.dueDate) : b.borrowDate.localeCompare(a.borrowDate)));
       listEl.innerHTML = shown.length ? loanTable(shown, { showStatus: true, actions: true })
         : `<div class="empty">${tab === "pending" ? "ไม่มีคำขอที่รออนุมัติ 🎉" : tab === "overdue" ? "ไม่มีรายการเกินกำหนด 🎉" : "ไม่มีรายการ"}</div>`;
@@ -1143,12 +1146,13 @@ async function requests(el) {
 // ============================================================
 //  สถิติการยืม (พนักงานโสต)
 // ============================================================
-const statState = { preset: "month", from: "", to: "", type: "" };
+const statState = { preset: "month", from: "", to: "", type: "", ay: 0 };
 function presetRange(p) {
   const t = today();
   if (p === "week") { const m = mondayOf(t); return [m, addDays(m, 6)]; }
   if (p === "month") { const d = parseYmd(t); return [ymd(new Date(d.getFullYear(), d.getMonth(), 1)), ymd(new Date(d.getFullYear(), d.getMonth() + 1, 0))]; }
   if (p === "fy") return fiscalRange(fiscalYearOf(t));
+  if (p === "ay") return academicRange(statState.ay || academicYearOf(t));
   return [statState.from || t, statState.to || t];
 }
 function trendBuckets(stats, from, to) {
@@ -1176,7 +1180,10 @@ async function stats(el) {
   el.innerHTML = `<div class="wrap"><div class="page-head"><h1>สถิติการยืมอุปกรณ์</h1><p>นับจากรายการที่อนุมัติแล้ว (กำลังยืมและคืนแล้ว) ตามวันที่ยืม แยกครูและนักเรียน ส่งออกเป็นรายงาน Word ได้</p></div></div>
     <section class="band"><div class="wrap" style="padding-top:24px;padding-bottom:56px"><div id="st"></div></div></section>`;
   const host = $("#st", el);
-  const PRESETS = [["week", "สัปดาห์นี้"], ["month", "เดือนนี้"], ["fy", "ปีงบประมาณนี้"], ["custom", "กำหนดเอง"]];
+  const PRESETS = [["week", "สัปดาห์นี้"], ["month", "เดือนนี้"], ["ay", "ปีการศึกษา"], ["fy", "ปีงบประมาณนี้"], ["custom", "กำหนดเอง"]];
+  const curAy = academicYearOf(today());
+  if (!statState.ay) statState.ay = curAy;
+  const AYS = []; for (let y = curAy; y >= Math.min(2568, curAy - 1); y--) AYS.push(y); // ปีปัจจุบันย้อนไปถึง 2568
   const TYPES = [["", "ทุกคน"], ["teacher", "ครู"], ["student", "นักเรียน"]];
   async function draw() {
     const [from, to] = presetRange(statState.preset);
@@ -1190,6 +1197,7 @@ async function stats(el) {
     const typeTxt = TYPES.find((x) => x[0] === statState.type)[1];
     host.innerHTML = `
       <div class="toolbar"><div class="seg">${PRESETS.map(([k, l]) => `<button data-p="${k}" class="${k === statState.preset ? "on" : ""}">${l}</button>`).join("")}</div>
+        ${statState.preset === "ay" ? `<select class="inp sm" id="s-ay" aria-label="เลือกปีการศึกษา">${AYS.map((y) => `<option value="${y}"${y === statState.ay ? " selected" : ""}>ปีการศึกษา ${y}</option>`).join("")}</select>` : ""}
         <input class="inp sm" type="date" id="s-from" value="${from}" aria-label="ตั้งแต่วันที่"><span class="clip">ถึง</span><input class="inp sm" type="date" id="s-to" value="${to}" aria-label="ถึงวันที่">
         <div class="seg">${TYPES.map(([k, l]) => `<button data-t="${k}" class="${k === statState.type ? "on" : ""}">${l}</button>`).join("")}</div>
         <span class="spacer"></span><button class="btn ghost" id="s-print">พิมพ์</button><button class="btn" id="s-word">ดาวน์โหลดรายงาน Word</button></div>
@@ -1199,7 +1207,7 @@ async function stats(el) {
         <div class="kpi"><div class="k">ระยะเวลายืมเฉลี่ย</div><div class="v">${s.avgDays.toLocaleString("th-TH", { maximumFractionDigits: 1 })}<small>วัน</small></div><div class="n">จากรายการที่คืนแล้ว ${num(s.closed)} รายการ</div></div>
         <div class="kpi${s.overdueNow ? " kpi-alert" : ""}"><div class="k">คืนช้า / เกินกำหนด</div><div class="v">${num(s.lateReturns + s.overdueNow)}<small>รายการ</small></div><div class="n">คืนช้า ${s.lateReturns} · ยังไม่คืน ${s.overdueNow}</div></div>
       </div>
-      <div class="card" style="margin-bottom:16px"><h2>จำนวนครั้งที่ยืม ${tr.unit}</h2><p class="sub">${thDate(from)} – ${thDate(to)} · ${typeTxt}</p>
+      <div class="card" style="margin-bottom:16px"><h2>จำนวนครั้งที่ยืม ${tr.unit}</h2><p class="sub">${statState.preset === "ay" ? `ปีการศึกษา ${statState.ay} · ` : ""}${thDate(from)} – ${thDate(to)} · ${typeTxt}</p>
         <div class="trend"><div class="trend-plot">${tr.out.map((x) => `<div class="trend-col" data-tip="<b>${esc(x.full)}</b><br>${x.v} ครั้ง">${x.v && tr.out.length <= 16 ? `<span class="tv">${x.v}</span>` : ""}<div class="b" style="height:${(x.v / max) * 100}%"></div></div>`).join("")}</div>
         <div class="trend-x">${tr.out.map((x, i) => `<span>${i % step === 0 ? esc(x.label) : ""}</span>`).join("")}</div></div></div>
       <div class="grid2">
@@ -1220,9 +1228,10 @@ async function stats(el) {
       if (a > b) return toast("วันที่เริ่มต้องไม่เกินวันที่สิ้นสุด", true);
       statState.preset = "custom"; statState.from = a; statState.to = b; draw().catch(fail);
     };
+    if ($("#s-ay", host)) $("#s-ay", host).onchange = (e) => { statState.ay = Number(e.target.value); draw().catch(fail); };
     $("#s-from", host).onchange = custom; $("#s-to", host).onchange = custom;
     $("#s-print", host).onclick = () => window.print();
-    $("#s-word", host).onclick = () => exportLoanReport({ from, to, rows, stats: s, typeLabel: typeTxt }).then(() => toast("ดาวน์โหลดรายงานแล้ว")).catch(fail);
+    $("#s-word", host).onclick = () => exportLoanReport({ from, to, rows, stats: s, typeLabel: typeTxt, periodLabel: statState.preset === "ay" ? `ปีการศึกษา ${statState.ay}` : "" }).then(() => toast("ดาวน์โหลดรายงานแล้ว")).catch(fail);
   }
   await draw();
 }
@@ -1394,14 +1403,14 @@ async function settings(el) {
     const me = state.user.uid;
     host.innerHTML = `
       <div class="toolbar"><h2 style="font-size:21px">ผู้ใช้งาน</h2><span class="clip" id="u-count"></span><span class="spacer"></span>
-        <input class="inp sm" type="search" id="u-q" placeholder="ค้นหาชื่อ อีเมล ชื่อผู้ใช้ หรือห้อง" aria-label="ค้นหาผู้ใช้งาน" style="width:min(260px,100%)" value="${esc(userState.q)}">
+        <input class="inp sm" type="search" id="u-q" placeholder="ค้นหาชื่อ อีเมล ชื่อผู้ใช้ ห้อง หรือรหัสนักเรียน" aria-label="ค้นหาผู้ใช้งาน" style="width:min(260px,100%)" value="${esc(userState.q)}">
         <select class="inp sm" id="u-type" aria-label="กรองตามประเภท"><option value="">ทุกประเภท</option><option value="teacher">ครู / บุคลากร</option><option value="student">นักเรียน</option><option value="none">ยังไม่ระบุ</option></select>
         <select class="inp sm" id="u-role" aria-label="กรองตามสิทธิ์"><option value="">ทุกสิทธิ์</option><option value="staff">พนักงานโสต</option><option value="user">ผู้ใช้ทั่วไป</option></select>
         <select class="inp sm" id="u-st" aria-label="กรองตามสถานะ"><option value="">ทุกสถานะ</option><option value="active">ใช้งานได้</option><option value="banned">ถูกระงับ</option></select></div>
       <p class="note info" style="margin:0 0 12px">ผู้ใช้ Google จะปรากฏหลังเข้าสู่ระบบครั้งแรก ส่วนบัญชีชื่อผู้ใช้ สมัครเองได้ที่หน้าแรกหรือพนักงานโสตสร้างให้ · <b>ระงับ</b> = เข้าใช้ไม่ได้จนกว่าจะยกเลิก · <b>ลบ</b> = ลบข้อมูลบัญชีออกจากระบบ</p>
       <div class="table-wrap"><table class="t"><thead><tr><th>ชื่อ</th><th>บัญชี</th><th>ประเภท</th><th>สิทธิ์</th><th>สถานะ</th><th></th></tr></thead><tbody>
-        ${users.map((u) => { const id = u.id, self = id === me; return `<tr data-id="${id}" data-u="${esc(`${u.name || ""} ${u.email || ""} ${u.username || ""} ${u.classroom || ""} ${u.department || ""}`.toLowerCase())}" data-ur="${u.role === "staff" ? "staff" : "user"}" data-ut="${u.type || "none"}" data-us="${u.banned ? "banned" : "active"}" class="${u.banned ? "row-muted" : ""}">
-          <td><b>${esc(u.name) || "–"}</b><div class="muted">${esc(u.type === "student" ? [u.classroom, u.studentNo && "เลขที่ " + u.studentNo].filter(Boolean).join(" ") : u.department || "")}</div></td>
+        ${users.map((u) => { const id = u.id, self = id === me; return `<tr data-id="${id}" data-u="${esc(`${u.name || ""} ${u.email || ""} ${u.username || ""} ${u.classroom || ""} ${u.studentId || ""} ${u.department || ""}`.toLowerCase())}" data-ur="${u.role === "staff" ? "staff" : "user"}" data-ut="${u.type || "none"}" data-us="${u.banned ? "banned" : "active"}" class="${u.banned ? "row-muted" : ""}">
+          <td><b>${esc(u.name) || "–"}</b><div class="muted">${esc(u.type === "student" ? studentInfo(u) : u.department || "")}</div></td>
           <td>${u.username ? `<span class="tag">ชื่อผู้ใช้</span> ${esc(u.username)}` : esc(u.email)}</td>
           <td><select class="inp sm" data-type aria-label="ประเภท"><option value=""${u.type ? "" : " selected"}>ยังไม่ระบุ</option><option value="teacher"${u.type === "teacher" ? " selected" : ""}>ครู / บุคลากร</option><option value="student"${u.type === "student" ? " selected" : ""}>นักเรียน</option></select></td>
           <td><select class="inp sm" data-role aria-label="สิทธิ์" ${self ? "disabled title='เปลี่ยนสิทธิ์ของตัวเองไม่ได้'" : ""}><option value="user"${u.role !== "staff" ? " selected" : ""}>ผู้ใช้ทั่วไป</option><option value="staff"${u.role === "staff" ? " selected" : ""}>พนักงานโสต</option></select></td>

@@ -40,6 +40,19 @@ export function fiscalRange(fy) {
   const to = new Date(startYear + 1, sm - 1, 0);
   return [ymd(from), ymd(to)];
 }
+// ----- ปีการศึกษา (พ.ศ.) -----
+const acStart = () => CONFIG.academicStart || { month: 5, day: 16 };
+export function academicYearOf(dateStr) {
+  const d = parseYmd(dateStr), { month, day } = acStart();
+  const be = d.getFullYear() + 543;
+  return d.getMonth() + 1 > month || (d.getMonth() + 1 === month && d.getDate() >= day) ? be : be - 1;
+}
+export function academicRange(ay) {
+  const { month, day } = acStart(), y = ay - 543;
+  return [ymd(new Date(y, month - 1, day)), ymd(new Date(y + 1, month - 1, day - 1))];
+}
+// ชั้น/ห้อง · เลขที่ · รหัสนักเรียน
+export const studentInfo = (x = {}) => [x.classroom, x.studentNo && "เลขที่ " + x.studentNo, x.studentId && "รหัส " + x.studentId].filter(Boolean).join(" ");
 export function fiscalLabel(fy) {
   const [a, b] = fiscalRange(fy);
   return `${thDate(a)} – ${thDate(b)}`;

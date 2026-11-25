@@ -108,13 +108,14 @@ const H = "EDEDED";
 // ------------------------------------------------------------
 //  รายงานสถิติการยืม-คืนอุปกรณ์
 // ------------------------------------------------------------
-export async function exportLoanReport({ from, to, rows, stats, typeLabel = "ทุกคน" }) {
+export async function exportLoanReport({ from, to, rows, stats, typeLabel = "ทุกคน", periodLabel = "" }) {
   const { P, cell, row, table, doc } = kit();
   const dec = (n) => n.toLocaleString("th-TH", { maximumFractionDigits: 1 });
   const longD = (d) => thDate(d, { day: "numeric", month: "long", year: "numeric" });
   const out = [
     P(`รายงานสถิติการยืม-คืนอุปกรณ์ ${CONFIG.unitName}`, { bold: true, size: 36, align: "center" }),
     P(CONFIG.schoolName, { bold: true, size: 36, align: "center" }),
+    ...(periodLabel ? [P(periodLabel, { bold: true, align: "center" })] : []),
     P(`ระหว่างวันที่ ${longD(from)} ถึง ${longD(to)}${typeLabel !== "ทุกคน" ? ` (เฉพาะ${typeLabel})` : ""}`, { align: "center", after: 200 }),
     P(`ในช่วงเวลาดังกล่าว มีการยืมอุปกรณ์รวมทั้งสิ้น ${num(stats.total)} ครั้ง จำนวนอุปกรณ์ ${num(stats.units)} ชิ้น แบ่งเป็นครู/บุคลากร ${num(stats.teacher)} ครั้ง และนักเรียน ${num(stats.student)} ครั้ง ระยะเวลายืมเฉลี่ย ${dec(stats.avgDays)} วัน คืนล่าช้า ${num(stats.lateReturns)} รายการ และยังไม่คืนเกินกำหนด ${num(stats.overdueNow)} รายการ รายละเอียดดังนี้`, { indent: true, after: 160 }),
   ];
@@ -153,7 +154,7 @@ export async function exportLoanReport({ from, to, rows, stats, typeLabel = "ท
     row([hs("ที่", 6), hs("วันที่ยืม – กำหนดคืน", 17), hs("ผู้ยืม", 22), hs("อุปกรณ์", 33), hs("สถานะ", 22)], true),
     ...(rows.length ? rows.map((l, i) => row([
       cell(i + 1, { align: "center", size: 24 }), cell(`${sd(l.borrowDate)}\n– ${sd(l.dueDate)}`, { size: 24 }),
-      cell(`${l.borrowerName}\n${l.borrowerType === "student" ? `นักเรียน ${l.classroom || ""}` : l.department || "ครู/บุคลากร"}`, { size: 24 }),
+      cell(`${l.borrowerName}\n${l.borrowerType === "student" ? `นักเรียน ${l.classroom || ""}${l.studentId ? `\nรหัส ${l.studentId}` : ""}` : l.department || "ครู/บุคลากร"}`, { size: 24 }),
       cell([...(l.items || []).map(lineText), extrasText(l)].filter(Boolean).join("\n"), { size: 24 }), cell(stTxt(l), { size: 24 }),
     ])) : [row([cell("ไม่มีข้อมูล", { span: 5, align: "center" })])]),
   ]));

@@ -38,13 +38,13 @@ function checkSize(file) {
 
 const BANNED_MSG = "บัญชีนี้ถูกระงับการใช้งาน กรุณาติดต่อพนักงานโสต";
 // ข้อมูลโปรไฟล์ที่ผู้ใช้แก้เองได้
-const PROFILE_KEYS = ["name", "type", "classroom", "studentNo", "department", "phone"];
+const PROFILE_KEYS = ["name", "type", "classroom", "studentNo", "studentId", "department", "phone"];
 const pickProfile = (p = {}) => Object.fromEntries(PROFILE_KEYS.map((k) => [k, String(p[k] ?? "").trim()]));
 
 function toUser(id, d) {
   return {
     uid: id, name: d.name || d.username || d.email || "ผู้ใช้", email: d.email || "", username: d.username || "", photo: d.photo || "",
-    role: d.role || "user", type: d.type || "", classroom: d.classroom || "", studentNo: d.studentNo || "",
+    role: d.role || "user", type: d.type || "", classroom: d.classroom || "", studentNo: d.studentNo || "", studentId: d.studentId || "",
     department: d.department || "", phone: d.phone || "", banned: !!d.banned,
   };
 }
@@ -61,7 +61,7 @@ function demoStore() {
   const USERS = {
     staff: { id: "demo-staff", name: "พนักงานโสต (ตัวอย่าง)", email: "staff@example.com", role: "staff", type: "teacher", department: "กลุ่มบริหารทั่วไป" },
     teacher: { id: "demo-teacher", name: "ครูผู้ยืม (ตัวอย่าง)", email: "teacher@example.com", role: "user", type: "teacher", department: "กลุ่มสาระการเรียนรู้ภาษาไทย" },
-    student: { id: "demo-student", name: "นักเรียน (ตัวอย่าง)", username: "student01", role: "user", type: "student", classroom: "ม.5/3", studentNo: "12" },
+    student: { id: "demo-student", name: "นักเรียน (ตัวอย่าง)", username: "student01", role: "user", type: "student", classroom: "ม.5/3", studentNo: "12", studentId: "34567" },
   };
 
   function seed() {
@@ -107,7 +107,7 @@ function demoStore() {
       mk({ project: P[0].project, activity: P[0].activities[1], item: "ซื้อเครื่องปริ้นเตอร์", category: "ครุภัณฑ์", fundType: "รายได้สถานศึกษา", amount: 20000 }),
       mk({ project: P[1].project, activity: P[1].activities[0], item: "ซ่อมบำรุงระบบจอ LED ห้องโสต", category: "จ้าง", fundType: "อุดหนุน", amount: 497550 }),
     ];
-    const users = Object.values(USERS).map((u) => ({ email: "", username: "", photo: "", classroom: "", studentNo: "", department: "", phone: "", banned: false, createdAt: Date.now(), ...u }));
+    const users = Object.values(USERS).map((u) => ({ email: "", username: "", photo: "", classroom: "", studentNo: "", studentId: "", department: "", phone: "", banned: false, createdAt: Date.now(), ...u }));
     users.push({ id: "demo-banned", name: "บัญชีที่ถูกระงับ (ตัวอย่าง)", username: "baduser", email: "", role: "user", type: "student", classroom: "ม.3/1", banned: true, createdAt: Date.now() });
     return { role: "staff", signedIn: false, users, items, loans, loanContacts: contacts, budget };
   }
