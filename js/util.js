@@ -166,28 +166,6 @@ export function availableIn(item, loans, from, to, excludeId, t = today()) {
   return Math.max(0, Number(item.quantity || 0) - used - holdIn(item, from, to));
 }
 
-// ----- นัดหมายสำหรับ Google Calendar (นัดหมายทั้งวัน ตั้งแต่วันยืมถึงวันกำหนดคืน) -----
-export function calendarEvent(l) {
-  const who = `${l.borrowerName}${l.borrowerType === "student" ? ` (นักเรียน${l.classroom ? " " + l.classroom : ""})` : ""}`;
-  const lines = [
-    `ผู้ยืม: ${who}`,
-    l.department ? `หน่วยงาน: ${l.department}` : null,
-    `อุปกรณ์: ${itemsText(l)}`,
-    `ใช้สำหรับ: ${l.purpose || "-"}`,
-    `กำหนดคืน: ${thDate(l.dueDate)}`,
-    l.note ? `หมายเหตุ: ${l.note}` : null,
-    "",
-    "บันทึกจากระบบยืม-คืนอุปกรณ์ งานโสตทัศนศึกษา",
-  ].filter((x) => x !== null);
-  return {
-    summary: `ยืม: ${itemsText(l)} — ${l.borrowerName}`.slice(0, 250),
-    description: lines.join("\n"),
-    start: { date: l.borrowDate },
-    end: { date: addDays(l.dueDate, 1) },
-    extendedProperties: { private: { sodeLoanId: String(l.id || "web") } },
-  };
-}
-
 // ----- สถิติการยืม -----
 export function computeStats(loans, t = today()) {
   const tally = () => new Map();

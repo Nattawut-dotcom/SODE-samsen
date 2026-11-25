@@ -105,36 +105,6 @@ async function refreshPending() {
   if (c) { c.textContent = state.pending; c.hidden = !state.pending; }
 }
 
-// ----- Google Calendar (ลงนัดหมายเมื่ออนุมัติการยืม) -----
-const cal = store.calendar;
-async function calReady() {
-  if (!cal.enabled || cal.connected()) return;
-  try { await cal.connect(); } catch (e) { console.warn(e); }
-}
-async function calAdd(l) {
-  if (!cal.enabled || l.calendarEventId || !cal.connected()) return null;
-  try {
-    const id = await cal.insert(l);
-    await store.update("loans", l.id, { calendarEventId: id });
-    l.calendarEventId = id;
-    return true;
-  } catch (e) { console.error(e); toast("บันทึกแล้ว แต่ลงปฏิทินไม่สำเร็จ: " + friendly(e), true); return false; }
-}
-async function calRemove(l) {
-  if (!cal.enabled || !l.calendarEventId) return null;
-  try {
-    await cal.remove(l.calendarEventId);
-    await store.update("loans", l.id, { calendarEventId: "" });
-    l.calendarEventId = "";
-    return true;
-  } catch (e) { console.error(e); toast("ลบออกจากปฏิทินไม่สำเร็จ: " + friendly(e), true); return false; }
-}
-async function calReturned(l) {
-  if (!cal.enabled || !l.calendarEventId || !cal.connected()) return;
-  try { await cal.patch(l.calendarEventId, { summary: `✅ คืนแล้ว: ${itemsText(l)} — ${l.borrowerName}`.slice(0, 250), end: { date: addDays(l.returnedDate, 1) } }); }
-  catch (e) { console.warn(e); }
-}
-
 // ============================================================
 //  แถบนำทาง + Router
 // ============================================================
@@ -951,12 +921,10 @@ async function borrow(el, params) {
         borrowDate: a, dueDate: b, purpose: v.purpose, note: v.note.trim(),
         status: staff ? "approved" : "pending", reason: "", createdAt: Date.now(), ...(staff ? { approvedBy: u.name, onBehalf: true } : {}),
       };
-      if (staff) await calReady();
       const id = await store.add("loans", loan);
       await store.set("loanContacts", id, { uid: u.uid, phone: v.phone.trim(), date: a });
       if (!staff && !u.phone) { store.update("users", u.uid, { phone: v.phone.trim() }).catch(() => {}); u.phone = v.phone.trim(); }
-      const added = staff ? await calAdd({ ...loan, id }) : null;
-      if (added !== false) toast(staff ? (added ? "บันทึกการยืมและลงปฏิทินแล้ว" : "บันทึกการยืมแล้ว") : "ส่งคำขอยืมแล้ว รอการอนุมัติ");
+      toast(staff ? "บันทึกการยืมแล้ว" : "ส่งคำขอยืมแล้ว รอการอนุมัติ");
       refreshPending();
       location.hash = staff ? "#/requests" : "#/my";
     } catch (err) { btn.disabled = false; fail(err); }
@@ -1019,17 +987,13 @@ async function showLoan(l, onChange) {
       <dt>วันที่ยืม</dt><dd>${thDateLong(l.borrowDate)}</dd><dt>กำหนดคืน</dt><dd>${thDateLong(l.dueDate)}${isOverdue(l) ? ` <b style="color:var(--red)">(เกิน ${daysBetween(l.dueDate, today())} วัน)</b>` : ""}</dd>
       ${l.status === "returned" ? `<dt>คืนเมื่อ</dt><dd>${thDateLong(l.returnedDate)}${l.returnNote ? `<div class="muted">${esc(l.returnNote)}</div>` : ""}</dd>` : ""}
       <dt>ใช้สำหรับ</dt><dd>${esc(l.purpose) || "–"}</dd><dt>รายละเอียด</dt><dd>${esc(l.note) || "–"}</dd>
-      ${l.approvedBy ? `<dt>ผู้อนุมัติ</dt><dd>${esc(l.approvedBy)}</dd>` : ""}
-      ${isStaff() && cal.enabled && l.status === "approved" ? `<dt>ปฏิทิน</dt><dd>${l.calendarEventId ? "📅 ลงปฏิทินแล้ว" : `ยังไม่ได้ลงปฏิทิน · <button class="linkbtn" data-cal>ลงปฏิทิน</button>`}</dd>` : ""}</dl>
+      ${l.approvedBy ? `<dt>ผู้อนุมัติ</dt><dd>${esc(l.approvedBy)}</dd>` : ""}</dl>
     ${isStaff() ? `<div class="form-actions" style="margin-top:20px"><button class="btn danger sm" data-del style="margin-right:auto">ลบรายการ</button>${loanActions(l)}</div>` : ""}`);
   $$("[data-act]", m.el).forEach((b) => (b.onclick = async () => { if (await loanAction(l, b.dataset.act)) { m.close(); onChange?.(); } }));
-  const calBtn = $("[data-cal]", m.el);
-  if (calBtn) calBtn.onclick = async () => { await calReady(); if (await calAdd(l)) { toast("ลงปฏิทินแล้ว"); m.close(); onChange?.(); } };
   const del = $("[data-del]", m.el);
   if (del) del.onclick = async () => {
     if (!confirm("ลบรายการนี้ถาวร? (จะไม่ถูกนับในสถิติอีก)")) return;
     try {
-      if (l.calendarEventId) { await calReady(); await calRemove(l); }
       await store.remove("loans", l.id); await store.remove("loanContacts", l.id).catch(() => {});
       m.close(); toast("ลบแล้ว"); refreshPending(); onChange?.();
     } catch (e) { fail(e); }
@@ -1042,7 +1006,6 @@ async function decide(l, status) {
       reason = await askText("ไม่อนุมัติคำขอยืม", "เหตุผล (ผู้ยืมจะเห็นข้อความนี้)", "ยืนยันไม่อนุมัติ");
       if (reason === null) return false;
     } else {
-      await calReady();
       const [fresh, list] = await Promise.all([activeLoans(), getItems(true)]);
       const short = (l.items || []).map((x) => {
         const it = list.find((i) => i.id === x.itemId);
@@ -1057,8 +1020,7 @@ async function decide(l, status) {
     const patch = { status, reason, updatedAt: Date.now(), ...(status === "approved" ? { approvedBy: state.user.name, approvedAt: Date.now() } : {}) };
     await store.update("loans", l.id, patch);
     Object.assign(l, patch);
-    const synced = status === "approved" ? await calAdd(l) : null;
-    if (synced !== false) toast(status === "approved" ? (synced ? "อนุมัติและลงปฏิทินแล้ว" : "อนุมัติแล้ว") : "บันทึกไม่อนุมัติแล้ว");
+    toast(status === "approved" ? "อนุมัติแล้ว" : "บันทึกไม่อนุมัติแล้ว");
     refreshPending();
     return true;
   } catch (e) { fail(e); return false; }
@@ -1085,7 +1047,6 @@ function receiveReturn(l) {
         Object.assign(l, patch);
         for (const id of damaged) await store.update("items", id, { condition: "ชำรุด", note: `แจ้งชำรุดเมื่อคืน ${thDate(patch.returnedDate)}${patch.returnNote ? ": " + patch.returnNote : ""}`, updatedAt: Date.now() }).catch(() => {});
         state.items = null;
-        await calReturned(l);
         m.close(); toast("บันทึกการคืนแล้ว"); res(true);
       } catch (err) { fail(err); }
     };
@@ -1115,7 +1076,7 @@ async function requests(el) {
     }
     const TABS = [["pending", "รออนุมัติ", pend.length], ["out", "กำลังยืม", out.length], ["overdue", "เกินกำหนด", over.length], ["returned", "คืนแล้ว"], ["closed", "ไม่อนุมัติ/ยกเลิก"], ["all", "ทั้งหมด"]];
     host.innerHTML = `<div class="toolbar"><div class="seg">${TABS.map(([k, l, n]) => `<button data-tab="${k}" class="${k === tab ? "on" : ""}">${l}${n !== undefined ? ` <small>${n}</small>` : ""}</button>`).join("")}</div>
-        <span class="spacer"></span>${!cal.enabled ? "" : cal.connected() ? `<span class="clip">📅 ${cal.demo ? "ปฏิทินจำลอง" : "เชื่อมต่อ Google Calendar แล้ว"}</span>` : `<button class="btn ghost sm" id="rq-cal">📅 เชื่อมต่อ Google Calendar</button>`}</div>
+        <span class="spacer"></span></div>
       <div class="toolbar">
         <div class="seg">${[["", "ทุกคน"], ["teacher", "ครู"], ["student", "นักเรียน"]].map(([k, l]) => `<button data-type="${k}" class="${reqState.type === k ? "on" : ""}">${l}</button>`).join("")}</div>
         <input class="inp sm" type="search" id="rq-q" placeholder="ค้นหาผู้ยืมหรืออุปกรณ์" value="${esc(reqState.q)}" style="width:min(240px,100%)" aria-label="ค้นหา">
@@ -1136,8 +1097,6 @@ async function requests(el) {
     $("#rq-q", host).oninput = (e) => { reqState.q = e.target.value; paint(); };
     const mi = $("#rq-month", host);
     if (mi) mi.onchange = () => { if (mi.value) { reqState.month = mi.value; draw().catch(fail); } };
-    const cb = $("#rq-cal", host);
-    if (cb) cb.onclick = async () => { try { await cal.connect(); toast("เชื่อมต่อ Google Calendar แล้ว"); draw().catch(fail); } catch (e) { fail(e); } };
     paint();
   }
   await draw();
@@ -1474,7 +1433,7 @@ async function deleteAccount(u, done) {
     e.target.disabled = true;
     try {
       for (const l of loans) {
-        if (hist) { if (l.calendarEventId) { await calReady(); await calRemove(l); } await store.remove("loans", l.id); await store.remove("loanContacts", l.id).catch(() => {}); }
+        if (hist) { await store.remove("loans", l.id); await store.remove("loanContacts", l.id).catch(() => {}); }
         else if (l.status === "pending") await store.update("loans", l.id, { status: "cancelled", reason: "บัญชีถูกลบ", updatedAt: Date.now() });
       }
       await store.remove("users", u.id);

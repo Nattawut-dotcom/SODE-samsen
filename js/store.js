@@ -2,7 +2,7 @@
 //   1) โหมดตัวอย่าง (localStorage)   : ใช้เมื่อยังไม่ได้ใส่ค่า Firebase ใน config.js (หรือเปิด localhost พร้อม ?demo=1)
 //   2) Firebase (Auth + Firestore)   : ใช้งานจริง
 import { CONFIG, PURPOSES, DEFAULT_ITEMS, BUDGET_PROJECTS } from "./config.js";
-import { addDays, today, calendarEvent } from "./util.js";
+import { addDays, today } from "./util.js";
 
 const forceDemo = /^(localhost|127\.0\.0\.1)$/.test(location.hostname) && /[?&]demo=1\b/.test(location.search);
 export const isDemo = forceDemo || !CONFIG.firebase.apiKey || CONFIG.firebase.apiKey === "PASTE_HERE";
@@ -167,15 +167,6 @@ function demoStore() {
       return f;
     },
     async removeFile(meta) { memFiles.delete(meta.id); },
-    // ปฏิทินจำลอง (โหมดตัวอย่างไม่ได้เขียนลง Google Calendar จริง)
-    calendar: {
-      enabled: true, demo: true,
-      connected: () => true,
-      async connect() {},
-      async insert() { return "demo-" + uid(); },
-      async patch() {},
-      async remove() {},
-    },
   };
 }
 
@@ -191,59 +182,8 @@ function firebaseStore() {
 
   const rows = (snap) => snap.docs.map((d) => ({ ...d.data(), id: d.id }));
 
-  // ----- Google Calendar: ใช้สิทธิ์ของพนักงานโสตที่ล็อกอินอยู่ (โทเคนอายุราว 1 ชั่วโมง) -----
-  const CAL_ID = CONFIG.calendar?.calendarId || "";
-  const CAL_SCOPE = "https://www.googleapis.com/auth/calendar.events";
-  const TOK_KEY = "sode-cal-token";
-  let tok = null;
-  try { tok = JSON.parse(sessionStorage.getItem(TOK_KEY)); } catch {}
-  const tokValid = () => !!tok && tok.uid === auth?.currentUser?.uid && tok.exp > Date.now() + 60000;
-  const clearTok = () => { tok = null; try { sessionStorage.removeItem(TOK_KEY); } catch {} };
-  const isGoogleUser = () => (auth?.currentUser?.providerData || []).some((p) => p.providerId === "google.com");
-  async function calConnect() {
-    if (!isGoogleUser()) throw new Error("การเชื่อม Google Calendar ต้องเข้าสู่ระบบด้วยบัญชี Google");
-    const p = new A.GoogleAuthProvider();
-    p.addScope(CAL_SCOPE);
-    p.setCustomParameters({ login_hint: auth.currentUser.email || "" });
-    const res = await A.reauthenticateWithPopup(auth.currentUser, p);
-    const cred = A.GoogleAuthProvider.credentialFromResult(res);
-    if (!cred?.accessToken) throw new Error("ไม่ได้รับสิทธิ์เข้าถึงปฏิทิน");
-    tok = { t: cred.accessToken, exp: Date.now() + 55 * 60000, uid: auth.currentUser.uid };
-    try { sessionStorage.setItem(TOK_KEY, JSON.stringify(tok)); } catch {}
-  }
-  async function calApi(method, path, body, retry = true) {
-    if (!tokValid()) await calConnect();
-    const r = await fetch(`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(CAL_ID)}/events${path}`, {
-      method, headers: { Authorization: `Bearer ${tok.t}`, "Content-Type": "application/json" }, body: body ? JSON.stringify(body) : undefined,
-    });
-    if (r.status === 401 && retry) { clearTok(); return calApi(method, path, body, false); }
-    return r;
-  }
-  const calError = (status) =>
-    status === 403 ? "บัญชีนี้ไม่มีสิทธิ์แก้ไขปฏิทินงานโสตฯ หรือยังไม่ได้อนุญาตสิทธิ์ปฏิทินตอนเชื่อมต่อ"
-    : status === 404 ? "ไม่พบปฏิทิน — ตรวจสอบ calendarId ใน config.js และการแชร์ปฏิทิน"
-    : `Google Calendar ตอบกลับข้อผิดพลาด ${status}`;
-  const calendar = {
-    enabled: !!CAL_ID, demo: false,
-    connected: tokValid,
-    connect: calConnect,
-    async insert(l) {
-      const r = await calApi("POST", "", calendarEvent(l));
-      if (!r.ok) throw new Error(calError(r.status));
-      return (await r.json()).id;
-    },
-    async patch(eventId, body) {
-      const r = await calApi("PATCH", "/" + encodeURIComponent(eventId), body);
-      if (!r.ok && r.status !== 404 && r.status !== 410) throw new Error(calError(r.status));
-    },
-    async remove(eventId) {
-      const r = await calApi("DELETE", "/" + encodeURIComponent(eventId));
-      if (!r.ok && r.status !== 404 && r.status !== 410) throw new Error(calError(r.status));
-    },
-  };
 
   return {
-    calendar,
     async init() {
       const [am, authM, fsM] = await Promise.all([
         import(`${base}/firebase-app.js`), import(`${base}/firebase-auth.js`), import(`${base}/firebase-firestore.js`),
@@ -327,7 +267,7 @@ function firebaseStore() {
       await A.reauthenticateWithCredential(u, A.EmailAuthProvider.credential(u.email, current));
       await A.updatePassword(u, next);
     },
-    async signOut() { clearTok(); await A.signOut(auth); },
+    async signOut() { await A.signOut(auth); },
     async get(coll, id) { const s = await F.getDoc(F.doc(db, coll, id)); return s.exists() ? { ...s.data(), id: s.id } : null; },
     async list(coll) { return rows(await F.getDocs(F.collection(db, coll))); },
     async query(coll, { eq, range, inq, contains } = {}) {

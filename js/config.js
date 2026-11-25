@@ -19,10 +19,6 @@ export const CONFIG = {
   //    เว้นว่าง "" = บัญชี Google ใดก็ได้
   allowedDomain: "",
 
-  // 2.1) เชื่อม Google Calendar ของงานโสตฯ (ดูคู่มือ ขั้นที่ 8)
-  //      ใส่อีเมลของปฏิทิน เช่น "av@samsenwit.ac.th" — เว้นว่าง "" = ไม่เชื่อมปฏิทิน
-  calendar: { calendarId: "audiosamsen@samsenwit.ac.th" }, // ปฏิทินกลางของงานโสตฯ ("primary" = ปฏิทินหลักของผู้ที่ล็อกอิน)
-
   // 3) ข้อมูลหน่วยงาน
   schoolName: "โรงเรียนสามเสนวิทยาลัย",
   unitName: "งานโสตทัศนศึกษา",
