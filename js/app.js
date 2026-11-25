@@ -483,13 +483,16 @@ const itemState = { q: "", cat: "", st: "" };
 async function items(el) {
   el.innerHTML = `<div class="wrap"><div class="page-head head-row"><div><h1>สถานะอุปกรณ์</h1><p>ดูว่าอุปกรณ์ไหนว่าง ถูกยืม หรือกำลังรออนุมัติ แยกตามหมวดหมู่</p></div>
       ${isStaff() ? `<label class="add-menu"><span class="sr">เพิ่มอุปกรณ์</span><select class="btn" id="it-add">
-        <option value="">＋ เพิ่มอุปกรณ์ ▾</option><option value="general">อุปกรณ์ทั่วไป</option><option value="camera">📷 กล้อง</option>
-        <option value="lens">🔭 เลนส์</option><option value="flash">⚡ แฟลช</option><option value="battery">🔋 แบตเตอรี่</option><option value="memory">💾 การ์ดหน่วยความจำ</option></select></label>` : `<a class="btn" href="#/borrow">ยืมอุปกรณ์</a>`}</div></div>
+        <option value="">＋ เพิ่มอุปกรณ์ ▾</option>
+        <optgroup label="📷 กล้องและอุปกรณ์ถ่ายภาพ"><option value="camera">📷 กล้อง</option><option value="lens">🔭 เลนส์</option><option value="flash">⚡️ แฟลช</option><option value="battery">🔋 แบตเตอรี่</option><option value="memory">💾 การ์ดหน่วยความจำ</option><option value="cat:อุปกรณ์ถ่ายภาพ">🔭 อุปกรณ์ถ่ายภาพอื่น ๆ</option></optgroup>
+        <optgroup label="หมวดอื่น ๆ">${CATEGORIES.filter((c) => c.name !== "กล้อง" && c.name !== "อุปกรณ์ถ่ายภาพ").map((c) => `<option value="cat:${esc(c.name)}">${c.icon} ${esc(c.name)}</option>`).join("")}</optgroup></select></label>` : `<a class="btn" href="#/borrow">ยืมอุปกรณ์</a>`}</div></div>
     <section class="band"><div class="wrap" style="padding-top:24px;padding-bottom:56px"><div id="it"></div></div></section>`;
   const host = $("#it", el);
   if (isStaff()) $("#it-add", el).onchange = (e) => {
     const k = e.target.value; e.target.value = "";
-    if (k) itemForm(null, () => draw().catch(fail), k === "general" ? {} : { kind: k, category: k === "camera" ? "กล้อง" : "อุปกรณ์ถ่ายภาพ" });
+    if (!k) return;
+    const preset = k.startsWith("cat:") ? { category: k.slice(4) } : { kind: k, category: k === "camera" ? "กล้อง" : "อุปกรณ์ถ่ายภาพ" };
+    itemForm(null, () => draw().catch(fail), preset);
   };
   async function draw() {
     const [list, active] = await Promise.all([getItems(true), activeLoans()]);
@@ -675,7 +678,7 @@ function itemForm(rec, done, preset = {}) {
   const r = rec || { name: KIND_HINT[preset.kind] || "", model: "", category: preset.category || "", kind: preset.kind || "", code: "", nos: [], quantity: 1, condition: "พร้อมใช้งาน", location: "", allowStudents: true, note: "", thumb: "" };
   const cats = [...new Set([...CATEGORIES.map((c) => c.name), ...(state.items || []).map((x) => x.category)])].filter(Boolean);
   let photoFile = null, removePhoto = false;
-  const m = openModal(rec ? "แก้ไขอุปกรณ์" : `เพิ่ม${KIND_HINT[preset.kind] || "อุปกรณ์"}`, `<form class="form" id="itf" novalidate>
+  const m = openModal(rec ? "แก้ไขอุปกรณ์" : `เพิ่ม${KIND_HINT[preset.kind] || (preset.category ? `อุปกรณ์ · ${preset.category}` : "อุปกรณ์")}`, `<form class="form" id="itf" novalidate>
       ${!rec && (preset.kind === "battery" || preset.kind === "memory") ? `<p class="note info full" style="margin:0">ถ้าแต่ละก้อน/แต่ละใบเขียนเบอร์ไว้ ใส่ในช่อง “หมายเลขชิ้น” เช่น 1-6 ผู้ยืมจะเลือกเบอร์ได้ตอนยืม</p>` : ""}
       ${!rec && preset.kind === "lens" ? `<p class="note info full" style="margin:0">แนะนำให้ใส่เมาท์และระยะในชื่อรุ่น เช่น “Canon EF 50mm f/1.8” เพื่อให้ผู้ยืมเลือกเลนส์ที่ใช้กับกล้องได้ถูก</p>` : ""}
       <div class="full photo-field">
