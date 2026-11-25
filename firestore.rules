@@ -1,0 +1,89 @@
+rules_version = '2';
+
+// กฎความปลอดภัยของฐานข้อมูล — ระบบยืม-คืนอุปกรณ์ งานโสตทัศนศึกษา
+// คัดลอกทั้งไฟล์ไปวางที่ Firebase Console > Firestore Database > Rules แล้วกด Publish
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+    function me() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+    // ผู้ใช้ที่มีโปรไฟล์และไม่ถูกระงับ
+    function active() {
+      return signedIn()
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && me().get('banned', false) != true;
+    }
+    function isStaff() {
+      return active() && me().role == 'staff';
+    }
+
+    // ผู้ใช้: สร้างโปรไฟล์ของตัวเองได้เฉพาะสิทธิ์ "user" และไม่ถูกระงับ
+    //        แก้ข้อมูลตัวเองได้ ยกเว้นสิทธิ์ การระงับ และชื่อผู้ใช้
+    //        พนักงานโสตสร้าง/แก้/ลบบัญชีได้ทั้งหมด
+    match /users/{uid} {
+      allow read: if signedIn() && (request.auth.uid == uid || isStaff());
+      allow create: if isStaff()
+        || (signedIn() && request.auth.uid == uid
+            && request.resource.data.role == 'user'
+            && request.resource.data.get('banned', false) == false);
+      allow update: if isStaff()
+        || (signedIn() && request.auth.uid == uid && resource.data.get('banned', false) != true
+            && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'banned', 'username']));
+      allow delete: if isStaff();
+    }
+
+    // อุปกรณ์: ทุกคนที่ใช้งานได้อ่านได้ แก้ไขได้เฉพาะพนักงานโสต
+    match /items/{id} {
+      allow read: if active();
+      allow write: if isStaff();
+    }
+
+    // รายการยืม: ทุกคนที่ใช้งานได้เห็นสถานะการยืม (ใช้คำนวณว่าอุปกรณ์ว่างหรือไม่)
+    //  - ผู้ยืมสร้างคำขอของตัวเองได้ และต้องเริ่มที่ "รออนุมัติ"
+    //  - ผู้ยืมยกเลิกคำขอของตัวเองได้ขณะยังรออนุมัติ
+    //  - พนักงานโสตทำได้ทุกอย่าง
+    match /loans/{id} {
+      allow read: if active();
+      allow create: if isStaff()
+        || (active()
+            && request.resource.data.uid == request.auth.uid
+            && request.resource.data.status == 'pending');
+      allow update: if isStaff()
+        || (active()
+            && resource.data.uid == request.auth.uid
+            && resource.data.status == 'pending'
+            && request.resource.data.status == 'cancelled'
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt']));
+      allow delete: if isStaff();
+    }
+
+    // เบอร์โทรผู้ยืม: เห็นได้เฉพาะเจ้าของรายการและพนักงานโสต
+    match /loanContacts/{id} {
+      allow read: if isStaff() || (active() && resource.data.uid == request.auth.uid);
+      allow create: if isStaff() || (active() && request.resource.data.uid == request.auth.uid);
+      allow update, delete: if isStaff();
+    }
+
+    // งบประมาณและไฟล์หลักฐาน: เฉพาะพนักงานโสต
+    match /budget/{id} {
+      allow read, write: if isStaff();
+    }
+    match /files/{id} {
+      allow read, write: if isStaff();
+      match /chunks/{n} {
+        allow read, write: if isStaff();
+      }
+    }
+
+    // ข้อมูลระบบจองห้องเดิม (rooms, bookings, bookingContacts, calendarEvents) — เปิดให้พนักงานโสตอ่าน/ลบได้เท่านั้น
+    match /rooms/{id} { allow read, delete: if isStaff(); }
+    match /bookings/{id} { allow read, delete: if isStaff(); }
+    match /bookingContacts/{id} { allow read, delete: if isStaff(); }
+    match /calendarEvents/{id} { allow read, delete: if isStaff(); }
+  }
+}
