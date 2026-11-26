@@ -396,6 +396,14 @@ function wireLoanTable(host, rows, onChange) {
   });
 }
 
+// เวลาในช่องปฏิทิน: วันมารับ = เวลารับ, วันคืน = เวลาคืน, ยืม-คืนวันเดียว = ช่วงเวลา
+const dayTime = (l, d) => (d === l.borrowDate ? l.pickupTime : d === l.dueDate ? l.returnTime : "") || "";
+const evTime = (l, d) => {
+  if (l.borrowDate === l.dueDate && d === l.borrowDate) return l.pickupTime ? `${l.pickupTime}${l.returnTime ? "–" + l.returnTime : ""}` : "";
+  if (d === l.borrowDate && l.pickupTime) return `รับ ${l.pickupTime}`;
+  if (d === l.dueDate && l.returnTime) return `คืน ${l.returnTime}`;
+  return "";
+};
 async function mountCalendar(host, dayHost, active) {
   const DOW = ["อา.", "จ.", "อ.", "พ.", "พฤ.", "ศ.", "ส."];
   let loans = [];
@@ -414,10 +422,10 @@ async function mountCalendar(host, dayHost, active) {
       <div class="cal-nav"><button class="btn ghost sm" data-today>วันนี้</button><button class="icon-btn" data-prev aria-label="เดือนก่อนหน้า">‹</button><button class="icon-btn" data-next aria-label="เดือนถัดไป">›</button></div></div>
       <div class="cal">${DOW.map((d) => `<div class="dow">${d}</div>`).join("")}`;
     for (let i = 0; i < cells; i++) {
-      const d = addDays(from, i), list = loans.filter((l) => loanOn(l, d, t)), inMonth = parseYmd(d).getMonth() === m - 1;
+      const d = addDays(from, i), list = loans.filter((l) => loanOn(l, d, t)).sort((x, y) => (dayTime(x, d) || "99").localeCompare(dayTime(y, d) || "99")), inMonth = parseYmd(d).getMonth() === m - 1;
       html += `<button class="day${inMonth ? "" : " out"}${d === t ? " today" : ""}${d === homeState.sel ? " sel" : ""}" data-d="${d}" aria-label="${thDate(d)} มีการยืม ${list.length} รายการ">
         <span class="dn">${parseYmd(d).getDate()}</span>
-        ${list.slice(0, 2).map((l) => `<span class="ev ${loanState(l)}">${esc(itemsText(l))}</span>`).join("")}
+        ${list.slice(0, 2).map((l) => `<span class="ev ${loanState(l)}">${evTime(l, d) ? `<b class="ev-t">${evTime(l, d)}</b> ` : ""}${esc(itemsText(l))}</span>`).join("")}
         ${list.length > 2 ? `<span class="ev-more">อีก ${list.length - 2} รายการ</span>` : ""}</button>`;
     }
     html += `</div><div class="legend"><span><i class="lg approved"></i>อนุมัติ</span><span><i class="lg pending"></i>รออนุมัติ</span><span><i class="lg overdue"></i>เกินกำหนด</span><span><i class="lg returned"></i>คืนแล้ว</span></div>`;
