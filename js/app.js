@@ -988,8 +988,11 @@ async function showLoan(l, onChange) {
       ${l.status === "returned" ? `<dt>คืนเมื่อ</dt><dd>${thDateLong(l.returnedDate)}${l.returnNote ? `<div class="muted">${esc(l.returnNote)}</div>` : ""}</dd>` : ""}
       <dt>ใช้สำหรับ</dt><dd>${esc(l.purpose) || "–"}</dd><dt>รายละเอียด</dt><dd>${esc(l.note) || "–"}</dd>
       ${l.approvedBy ? `<dt>ผู้อนุมัติ</dt><dd>${esc(l.approvedBy)}</dd>` : ""}</dl>
-    ${isStaff() ? `<div class="form-actions" style="margin-top:20px"><button class="btn danger sm" data-del style="margin-right:auto">ลบรายการ</button>${loanActions(l)}</div>` : ""}`);
+    ${l.editedBy ? `<p class="muted-p" style="margin-top:8px">แก้ไขล่าสุดโดย ${esc(l.editedBy)}</p>` : ""}
+    ${isStaff() ? `<div class="form-actions" style="margin-top:20px"><button class="btn danger sm" data-del style="margin-right:auto">ลบรายการ</button>${ACTIVE.includes(l.status) ? `<button class="btn ghost sm" data-edit>แก้ไข</button>` : ""}${loanActions(l)}</div>` : ""}`);
   $$("[data-act]", m.el).forEach((b) => (b.onclick = async () => { if (await loanAction(l, b.dataset.act)) { m.close(); onChange?.(); } }));
+  const ed = $("[data-edit]", m.el);
+  if (ed) ed.onclick = async () => { m.close(); if (await editLoan(l)) onChange?.(); };
   const del = $("[data-del]", m.el);
   if (del) del.onclick = async () => {
     if (!confirm("ลบรายการนี้ถาวร? (จะไม่ถูกนับในสถิติอีก)")) return;
@@ -998,6 +1001,88 @@ async function showLoan(l, onChange) {
       m.close(); toast("ลบแล้ว"); refreshPending(); onChange?.();
     } catch (e) { fail(e); }
   };
+}
+// แก้ไขคำขอที่รออนุมัติ/อนุมัติแล้ว (เฉพาะพนักงานโสต): วันที่ จำนวน/หมายเลข วัตถุประสงค์ รายละเอียด
+async function editLoan(l) {
+  const [list, active] = await Promise.all([getItems(true), activeLoans()]);
+  const byId = new Map(list.map((it) => [it.id, it]));
+  const others = active.filter((o) => o.status === "approved" && o.id !== l.id);
+  const lines = (l.items || []).map((x) => ({ ...x, nos: new Set(x.nos || []), qty: Number(x.qty) || 0 }));
+  const ex = { battery: l.extras?.battery || "", memory: l.extras?.memory || "" };
+  return new Promise((res) => {
+    const m = openModal("แก้ไขรายการยืม", `<form class="form" id="elf" novalidate>
+        <div class="full who-card">${who(l)}</div>
+        <label class="f"><span>วันที่ยืม *</span><input class="inp" type="date" name="borrowDate" required value="${esc(l.borrowDate)}"></label>
+        <label class="f"><span>กำหนดคืน *</span><input class="inp" type="date" name="dueDate" required value="${esc(l.dueDate)}"></label>
+        <div class="full"><div class="el-h">อุปกรณ์</div><div id="el-lines"></div></div>
+        ${ex.battery || ex.memory ? `<label class="f"><span>เบอร์แบตเตอรี่ (พิมพ์เอง)</span><input class="inp" name="exBattery" maxlength="40" value="${esc(ex.battery)}"></label>
+        <label class="f"><span>เบอร์การ์ดหน่วยความจำ (พิมพ์เอง)</span><input class="inp" name="exMemory" maxlength="40" value="${esc(ex.memory)}"></label>` : ""}
+        <label class="f"><span>ใช้สำหรับ *</span><select class="inp" name="purpose" required>${opts([...new Set([...PURPOSES, ...(l.purpose ? [l.purpose] : [])])], l.purpose, "เลือกวัตถุประสงค์")}</select></label>
+        <label class="f full"><span>รายละเอียดเพิ่มเติม</span><textarea class="inp" name="note" rows="3" maxlength="600">${esc(l.note || "")}</textarea></label>
+        <div class="full form-actions"><button class="btn ghost" type="button" data-x>ยกเลิก</button><button class="btn" type="submit">บันทึกการแก้ไข</button></div>
+      </form>`);
+    m.onClose = () => res(false);
+    const f = $("#elf", m.el), host = $("#el-lines", m.el);
+    const range = () => { const a = f.elements.borrowDate.value || l.borrowDate; return [a, f.elements.dueDate.value || a]; };
+    const paint = () => {
+      const [a, b] = range();
+      host.innerHTML = lines.map((x, i) => {
+        const it = byId.get(x.itemId), nos = it ? nosOf(it) : [];
+        const head = `<div class="el-name"><b>${itemIcon(x)} ${esc(x.name)}</b>${x.code ? ` <span class="muted">(${esc(x.code)})</span>` : ""}${it ? "" : ` <span class="muted">· ถูกลบออกจากระบบแล้ว</span>`}</div>`;
+        const rm = `<button type="button" class="btn ghost sm" data-rm>เอาออก</button>`;
+        if (!it) return `<div class="el-row" data-i="${i}">${head}<span class="muted">× ${x.qty}</span>${rm}</div>`;
+        if (nos.length) {
+          const held = holdIn(it, a, b) > 0, used = usedNos(it.id, others, a, b);
+          return `<div class="el-row" data-i="${i}">${head}${rm}
+            <div class="nos"><span class="nos-lb">หมายเลข:</span>${nos.map((n) => { const busy = held || used.has(n); return `<button type="button" class="no${x.nos.has(n) ? " on" : ""}" data-no="${esc(n)}" ${busy && !x.nos.has(n) ? "disabled title='ถูกยืมหรือไม่ว่างในช่วงนี้'" : ""}>#${esc(n)}${busy && x.nos.has(n) ? " ⚠️" : ""}</button>`; }).join("")}</div></div>`;
+        }
+        const av = availableIn(it, others, a, b, l.id);
+        return `<div class="el-row" data-i="${i}">${head}<label class="el-qty">จำนวน <input class="inp sm" type="number" min="1" max="${Math.max(av, x.qty)}" value="${x.qty}" data-qty></label>
+          <span class="muted">ว่าง ${av}</span>${rm}</div>`;
+      }).join("") || `<p class="muted-p">ไม่มีอุปกรณ์ในรายการ</p>`;
+      $$(".el-row", host).forEach((row) => {
+        const x = lines[Number(row.dataset.i)];
+        $("[data-rm]", row).onclick = () => { lines.splice(Number(row.dataset.i), 1); paint(); };
+        const q = $("[data-qty]", row); if (q) q.oninput = () => { x.qty = Math.max(0, Number(q.value) || 0); };
+        $$("[data-no]", row).forEach((bn) => (bn.onclick = () => { const n = bn.dataset.no; x.nos.has(n) ? x.nos.delete(n) : x.nos.add(n); x.qty = x.nos.size; paint(); }));
+      });
+    };
+    f.elements.borrowDate.onchange = () => { if (f.elements.dueDate.value < f.elements.borrowDate.value) f.elements.dueDate.value = f.elements.borrowDate.value; paint(); };
+    f.elements.dueDate.onchange = paint;
+    $("[data-x]", m.el).onclick = () => m.dismiss();
+    paint();
+    f.onsubmit = async (e) => {
+      e.preventDefault();
+      if (!f.reportValidity()) return;
+      const [a, b] = range();
+      if (b < a) return toast("วันกำหนดคืนต้องไม่ก่อนวันที่ยืม", true);
+      const keep = lines.filter((x) => (x.nos.size || x.qty) > 0);
+      if (!keep.length) return toast("ต้องมีอุปกรณ์อย่างน้อย 1 รายการ (ถ้าไม่ยืมแล้วให้ลบรายการแทน)", true);
+      for (const x of keep) {
+        const it = byId.get(x.itemId);
+        if (!it) continue;
+        if (nosOf(it).length) {
+          const used = usedNos(it.id, others, a, b);
+          const clash = holdIn(it, a, b) ? [...x.nos] : [...x.nos].filter((n) => used.has(n));
+          if (clash.length) return toast(`"${it.name}" หมายเลข #${clash.join(", #")} ไม่ว่างในช่วงวันที่เลือก`, true);
+        } else {
+          const av = availableIn(it, others, a, b, l.id);
+          if (x.qty > av) return toast(`"${it.name}" ว่างเพียง ${av} ชิ้นในช่วงวันที่เลือก`, true);
+        }
+      }
+      const items = keep.map((x) => ({ itemId: x.itemId, name: x.name, model: x.model || "", category: x.category || "อื่น ๆ", kind: x.kind || "", code: x.code || "", qty: x.nos.size || x.qty, nos: [...x.nos] }));
+      const v = Object.fromEntries(new FormData(f));
+      const extras = {};
+      if ((v.exBattery || "").trim()) extras.battery = v.exBattery.trim();
+      if ((v.exMemory || "").trim()) extras.memory = v.exMemory.trim();
+      const patch = { borrowDate: a, dueDate: b, items, itemIds: items.map((x) => x.itemId), purpose: v.purpose, note: (v.note || "").trim(), extras, updatedAt: Date.now(), editedBy: state.user.name, editedAt: Date.now() };
+      try {
+        await store.update("loans", l.id, patch);
+        Object.assign(l, patch);
+        m.close(); toast("บันทึกการแก้ไขแล้ว"); res(true);
+      } catch (err) { fail(err); }
+    };
+  });
 }
 async function decide(l, status) {
   try {
