@@ -5,7 +5,7 @@ import {
   mondayOf, typeLabel, shortType, catIcon, itemIcon, studentInfo, academicYearOf, academicRange, catOrder, LOAN_STATUS, ITEM_STATUS, isOverdue, loanState, ACTIVE, loanUnits, itemsText,
   loanOn, loanEnd, lineText, extrasText, itemStatus, holdIn, holdOn, HOLD_KINDS, availableIn, computeStats, sortedEntries, monthShort, weekLabel, inAppBrowser,
 } from "./util.js";
-import { exportLoanReport, exportBudgetReport } from "./report.js";
+import { exportLoanReport, exportLoanExcel, exportLoanPdf, exportBudgetReport } from "./report.js";
 
 const state = { user: null, items: null, pending: 0, authMsg: "" };
 const view = $("#view");
@@ -1247,7 +1247,7 @@ function barList(map, unit = "ครั้ง", limit = 12) {
   return `<div class="bars">${e.map(([k, v]) => `<div class="bar-row" data-tip="<b>${esc(k)}</b><br>${num(v)} ${unit}"><span class="lb">${esc(k)}</span><span class="track"><span class="fill" style="width:${(v / max) * 100}%"></span></span><span class="val">${num(v)}</span></div>`).join("")}</div>`;
 }
 async function stats(el) {
-  el.innerHTML = `<div class="wrap"><div class="page-head"><h1>สถิติการยืมอุปกรณ์</h1><p>นับจากรายการที่อนุมัติแล้ว (อนุมัติและคืนแล้ว) ตามวันที่ยืม แยกครูและนักเรียน ส่งออกเป็นรายงาน Word ได้</p></div></div>
+  el.innerHTML = `<div class="wrap"><div class="page-head"><h1>สถิติการยืมอุปกรณ์</h1><p>นับจากรายการที่อนุมัติแล้ว (อนุมัติและคืนแล้ว) ตามวันที่ยืม แยกครูและนักเรียน ส่งออกเป็นรายงาน Word, Excel และ PDF ได้</p></div></div>
     <section class="band"><div class="wrap" style="padding-top:24px;padding-bottom:56px"><div id="st"></div></div></section>`;
   const host = $("#st", el);
   const PRESETS = [["week", "สัปดาห์นี้"], ["month", "เดือนนี้"], ["ay", "ปีการศึกษา"], ["fy", "ปีงบประมาณนี้"], ["custom", "กำหนดเอง"]];
@@ -1270,7 +1270,7 @@ async function stats(el) {
         ${statState.preset === "ay" ? `<select class="inp sm" id="s-ay" aria-label="เลือกปีการศึกษา">${AYS.map((y) => `<option value="${y}"${y === statState.ay ? " selected" : ""}>ปีการศึกษา ${y}</option>`).join("")}</select>` : ""}
         <input class="inp sm" type="date" id="s-from" value="${from}" aria-label="ตั้งแต่วันที่"><span class="clip">ถึง</span><input class="inp sm" type="date" id="s-to" value="${to}" aria-label="ถึงวันที่">
         <div class="seg">${TYPES.map(([k, l]) => `<button data-t="${k}" class="${k === statState.type ? "on" : ""}">${l}</button>`).join("")}</div>
-        <span class="spacer"></span><button class="btn ghost" id="s-print">พิมพ์</button><button class="btn" id="s-word">ดาวน์โหลดรายงาน Word</button></div>
+        <span class="spacer"></span><button class="btn ghost" id="s-print">พิมพ์</button><div class="export-btns"><span class="clip">ดาวน์โหลดรายงาน</span><button class="btn sm" data-exp="word">Word</button><button class="btn sm" data-exp="excel">Excel</button><button class="btn sm" data-exp="pdf">PDF</button></div></div>
       <div class="kpis">
         <div class="kpi"><div class="k">จำนวนครั้งที่ยืม</div><div class="v">${num(s.total)}<small>ครั้ง</small></div><div class="n">ครู ${num(s.teacher)} · นักเรียน ${num(s.student)}</div></div>
         <div class="kpi"><div class="k">จำนวนอุปกรณ์ที่ยืม</div><div class="v">${num(s.units)}<small>ชิ้น</small></div></div>
@@ -1301,7 +1301,12 @@ async function stats(el) {
     if ($("#s-ay", host)) $("#s-ay", host).onchange = (e) => { statState.ay = Number(e.target.value); draw().catch(fail); };
     $("#s-from", host).onchange = custom; $("#s-to", host).onchange = custom;
     $("#s-print", host).onclick = () => window.print();
-    $("#s-word", host).onclick = () => exportLoanReport({ from, to, rows, stats: s, typeLabel: typeTxt, periodLabel: statState.preset === "ay" ? `ปีการศึกษา ${statState.ay}` : "" }).then(() => toast("ดาวน์โหลดรายงานแล้ว")).catch(fail);
+    const exp = { word: exportLoanReport, excel: exportLoanExcel, pdf: exportLoanPdf };
+    $$("[data-exp]", host).forEach((b) => (b.onclick = async () => {
+      b.disabled = true; const t = b.textContent; b.textContent = "กำลังสร้าง…";
+      try { await exp[b.dataset.exp]({ from, to, rows, stats: s, typeLabel: typeTxt, periodLabel: statState.preset === "ay" ? `ปีการศึกษา ${statState.ay}` : "" }); toast(`ดาวน์โหลดรายงาน ${t} แล้ว`); }
+      catch (e) { fail(e); } finally { b.disabled = false; b.textContent = t; }
+    }));
   }
   await draw();
 }
