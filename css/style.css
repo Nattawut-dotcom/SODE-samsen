@@ -444,6 +444,14 @@ label.f small, legend small { color: var(--ink-3); }
 .catbar-legend b { color: var(--ink); }
 .catbar-legend i { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 5px; vertical-align: 0; }
 
+/* แก้ไขรายการยืม */
+.el-h { font-size: 13.5px; font-weight: 600; color: var(--ink-2); margin-bottom: 6px; }
+.el-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 10px 12px; border: 1px solid var(--line-soft); border-radius: 12px; margin-bottom: 8px; background: #fff; }
+.el-name { flex: 1 1 200px; min-width: 0; }
+.el-qty { display: inline-flex; align-items: center; gap: 6px; font-size: 13.5px; color: var(--ink-2); }
+.el-qty .inp { width: 72px; }
+.el-row .nos { flex-basis: 100%; }
+
 @media print {
   body { font-family: "TH Sarabun New", var(--font); font-size: 19px; }
   .nav, .footer, #demo-bar, .toolbar, .btn { display: none !important; }
