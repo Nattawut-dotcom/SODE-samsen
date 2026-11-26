@@ -452,6 +452,8 @@ label.f small, legend small { color: var(--ink-3); }
 .el-qty .inp { width: 72px; }
 .el-row .nos { flex-basis: 100%; }
 
+.ev .ev-t { font-weight: 600; font-variant-numeric: tabular-nums; }
+
 @media print {
   body { font-family: "TH Sarabun New", var(--font); font-size: 19px; }
   .nav, .footer, #demo-bar, .toolbar, .btn { display: none !important; }
