@@ -79,13 +79,13 @@ export const catOrder = (name) => {
 
 // ----- การยืม -----
 //  pending   = กำลังขออนุญาต (รออนุมัติ)
-//  approved  = อนุมัติแล้ว / กำลังยืม (ยังไม่คืน)
+//  approved  = อนุมัติแล้ว (ยังไม่คืน)
 //  returned  = คืนแล้ว
 //  rejected  = ไม่อนุมัติ
 //  cancelled = ผู้ยืมยกเลิก
 export const LOAN_STATUS = {
   pending: { label: "รออนุมัติ", cls: "st-pending" },
-  approved: { label: "กำลังยืม", cls: "st-approved" },
+  approved: { label: "อนุมัติ", cls: "st-approved" },
   overdue: { label: "เกินกำหนดคืน", cls: "st-rejected" },
   returned: { label: "คืนแล้ว", cls: "st-cancelled" },
   rejected: { label: "ไม่อนุมัติ", cls: "st-rejected" },

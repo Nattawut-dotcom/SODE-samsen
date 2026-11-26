@@ -149,7 +149,7 @@ export async function exportLoanReport({ from, to, rows, stats, typeLabel = "ท
   out.push(P(`ตารางที่ ${++no} รายละเอียดการยืม`, { bold: true, before: 200, after: 80 }));
   const hs = (t, w) => cell(t, { bold: true, align: "center", shade: H, w, size: 26 });
   const sd = (d) => thDate(d, { day: "numeric", month: "short", year: "2-digit" });
-  const stTxt = (l) => (l.status === "returned" ? `คืน ${sd(l.returnedDate)}` : l.dueDate < new Date().toISOString().slice(0, 10) ? "ยังไม่คืน (เกินกำหนด)" : "กำลังยืม");
+  const stTxt = (l) => (l.status === "returned" ? `คืน ${sd(l.returnedDate)}` : l.dueDate < new Date().toISOString().slice(0, 10) ? "ยังไม่คืน (เกินกำหนด)" : "อนุมัติ (ยังไม่คืน)");
   out.push(table([
     row([hs("ที่", 6), hs("วันที่ยืม – กำหนดคืน", 17), hs("ผู้ยืม", 22), hs("อุปกรณ์", 33), hs("สถานะ", 22)], true),
     ...(rows.length ? rows.map((l, i) => row([

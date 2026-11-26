@@ -413,7 +413,7 @@ async function mountCalendar(host, dayHost, active) {
         ${list.slice(0, 2).map((l) => `<span class="ev ${loanState(l)}">${esc(itemsText(l))}</span>`).join("")}
         ${list.length > 2 ? `<span class="ev-more">อีก ${list.length - 2} รายการ</span>` : ""}</button>`;
     }
-    html += `</div><div class="legend"><span><i class="lg approved"></i>กำลังยืม</span><span><i class="lg pending"></i>รออนุมัติ</span><span><i class="lg overdue"></i>เกินกำหนด</span><span><i class="lg returned"></i>คืนแล้ว</span></div>`;
+    html += `</div><div class="legend"><span><i class="lg approved"></i>อนุมัติ</span><span><i class="lg pending"></i>รออนุมัติ</span><span><i class="lg overdue"></i>เกินกำหนด</span><span><i class="lg returned"></i>คืนแล้ว</span></div>`;
     host.innerHTML = html;
     const step = (n) => { const d = new Date(y, m - 1 + n, 1); homeState.month = ymd(d).slice(0, 7); draw().catch(fail); };
     $("[data-prev]", host).onclick = () => step(-1);
@@ -601,7 +601,7 @@ async function itemDetail(it, s, onChange) {
       ${nos.length ? `<dt>หมายเลขชิ้น</dt><dd><div class="nos static">${nos.map((n) => `<span class="no${busy.has(n) ? " busy" : ""}" title="${busy.has(n) ? "ถูกยืมอยู่" : "ว่าง"}">#${esc(n)}</span>`).join("")}</div></dd>` : ""}
       <dt>ที่เก็บ</dt><dd>${esc(it.location) || "–"}</dd><dt>สภาพ</dt><dd>${esc(it.condition || "พร้อมใช้งาน")}</dd>
       <dt>ผู้ยืมได้</dt><dd>${it.allowStudents === false ? "เฉพาะครู / บุคลากร" : "ครูและนักเรียน"}</dd><dt>รายละเอียด</dt><dd>${esc(it.note) || "–"}</dd></dl>
-    <h3 class="mh">กำลังยืม / รออนุมัติ</h3>${current.length ? `<div class="day-list">${current.map(line).join("")}</div>` : `<p class="muted-p">ไม่มี</p>`}
+    <h3 class="mh">อนุมัติ / รออนุมัติ</h3>${current.length ? `<div class="day-list">${current.map(line).join("")}</div>` : `<p class="muted-p">ไม่มี</p>`}
     <h3 class="mh">ประวัติล่าสุด</h3>${past.length ? `<div class="day-list">${past.map(line).join("")}</div>` : `<p class="muted-p">ยังไม่มีประวัติการยืม</p>`}
     ${s.hold ? `<p class="note warn" style="margin-top:14px">${HOLD_KINDS[s.hold.kind]}${s.held < s.qty ? ` ${s.held} ชิ้น` : ""}${s.hold.note ? ` — ${esc(s.hold.note)}` : ""}${s.hold.until ? ` (ถึง ${thDate(s.hold.until)})` : ""}${s.hold.by ? ` · ตั้งโดย ${esc(s.hold.by)}` : ""}</p>` : ""}
     <div class="form-actions" style="margin-top:18px">${isStaff() ? `<button class="btn ghost" data-hold>ตั้งสถานะ</button><button class="btn ghost" data-edit>แก้ไขอุปกรณ์</button>` : ""}${!s.broken && canBorrow(it) ? `<a class="btn" href="#/borrow?item=${it.id}">ยืมอุปกรณ์นี้</a>` : ""}</div>`);
@@ -1074,7 +1074,7 @@ async function requests(el) {
       rows = (await store.query("loans", { range: ["borrowDate", from, to] }))
         .filter((l) => tab === "all" || (tab === "returned" ? l.status === "returned" : l.status === "rejected" || l.status === "cancelled"));
     }
-    const TABS = [["pending", "รออนุมัติ", pend.length], ["out", "กำลังยืม", out.length], ["overdue", "เกินกำหนด", over.length], ["returned", "คืนแล้ว"], ["closed", "ไม่อนุมัติ/ยกเลิก"], ["all", "ทั้งหมด"]];
+    const TABS = [["pending", "รออนุมัติ", pend.length], ["out", "อนุมัติ", out.length], ["overdue", "เกินกำหนด", over.length], ["returned", "คืนแล้ว"], ["closed", "ไม่อนุมัติ/ยกเลิก"], ["all", "ทั้งหมด"]];
     host.innerHTML = `<div class="toolbar"><div class="seg">${TABS.map(([k, l, n]) => `<button data-tab="${k}" class="${k === tab ? "on" : ""}">${l}${n !== undefined ? ` <small>${n}</small>` : ""}</button>`).join("")}</div>
         <span class="spacer"></span></div>
       <div class="toolbar">
@@ -1136,7 +1136,7 @@ function barList(map, unit = "ครั้ง", limit = 12) {
   return `<div class="bars">${e.map(([k, v]) => `<div class="bar-row" data-tip="<b>${esc(k)}</b><br>${num(v)} ${unit}"><span class="lb">${esc(k)}</span><span class="track"><span class="fill" style="width:${(v / max) * 100}%"></span></span><span class="val">${num(v)}</span></div>`).join("")}</div>`;
 }
 async function stats(el) {
-  el.innerHTML = `<div class="wrap"><div class="page-head"><h1>สถิติการยืมอุปกรณ์</h1><p>นับจากรายการที่อนุมัติแล้ว (กำลังยืมและคืนแล้ว) ตามวันที่ยืม แยกครูและนักเรียน ส่งออกเป็นรายงาน Word ได้</p></div></div>
+  el.innerHTML = `<div class="wrap"><div class="page-head"><h1>สถิติการยืมอุปกรณ์</h1><p>นับจากรายการที่อนุมัติแล้ว (อนุมัติและคืนแล้ว) ตามวันที่ยืม แยกครูและนักเรียน ส่งออกเป็นรายงาน Word ได้</p></div></div>
     <section class="band"><div class="wrap" style="padding-top:24px;padding-bottom:56px"><div id="st"></div></div></section>`;
   const host = $("#st", el);
   const PRESETS = [["week", "สัปดาห์นี้"], ["month", "เดือนนี้"], ["ay", "ปีการศึกษา"], ["fy", "ปีงบประมาณนี้"], ["custom", "กำหนดเอง"]];
