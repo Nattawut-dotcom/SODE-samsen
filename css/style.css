@@ -318,7 +318,7 @@ table.t { width: 100%; border-collapse: collapse; font-size: 14px; }
 .igroup h2 { font-size: 19px; font-weight: 600; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
 .igroup h2 small { font-size: 13px; font-weight: 400; color: var(--ink-3); }
 .igrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
-.icard { background: #fff; border: 1px solid var(--line-soft); border-radius: var(--radius); padding: 16px; display: flex; flex-direction: column; gap: 6px; cursor: pointer; transition: box-shadow 0.15s; }
+.icard { --pad: 16px; background: #fff; border: 1px solid var(--line-soft); border-radius: var(--radius); padding: var(--pad); min-width: 0; overflow: hidden; display: flex; flex-direction: column; gap: 6px; cursor: pointer; transition: box-shadow 0.15s; }
 .icard:hover, .icard:focus-visible { box-shadow: var(--shadow); }
 .icard.broken { opacity: 0.7; }
 .icard-top { display: flex; justify-content: space-between; align-items: center; }
@@ -331,7 +331,7 @@ table.t { width: 100%; border-collapse: collapse; font-size: 14px; }
 .icard-row { display: flex; justify-content: space-between; align-items: center; gap: 6px; font-size: 13.5px; color: var(--ink-2); flex-wrap: wrap; }
 .icard-row b { color: var(--ink); font-size: 16px; }
 .icard-who { font-size: 12.5px; color: var(--ink-2); }
-.icard-acts { display: flex; gap: 6px; margin-top: auto; padding-top: 6px; }
+.icard-acts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: auto; padding-top: 6px; }
 .icard-acts:empty { display: none; }
 .detail-top { display: flex; gap: 10px; align-items: center; margin-bottom: 14px; }
 .mh { font-size: 15px; font-weight: 600; margin: 20px 0 8px; }
@@ -373,10 +373,10 @@ label.f small, legend small { color: var(--ink-3); }
 .inapp { line-height: 1.6; }
 .nav-me { display: flex; align-items: center; gap: 8px; color: inherit; }
 .nav-me:hover { text-decoration: none; color: var(--ink); }
-@media (max-width: 600px) { .kpis { grid-template-columns: 1fr 1fr; gap: 10px; } .kpi { padding: 14px 16px; } .kpi .v { font-size: 26px; } .item { grid-template-columns: 60px 1fr; } .igrid { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); } .icard { padding: 13px; } .hero-login h1 { font-size: 34px; } }
+@media (max-width: 600px) { .kpis { grid-template-columns: 1fr 1fr; gap: 10px; } .kpi { padding: 14px 16px; } .kpi .v { font-size: 26px; } .item { grid-template-columns: 60px 1fr; } .igrid { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); } .icard { --pad: 12px; } .icard-acts .btn.sm { padding: 5px 10px; } .hero-login h1 { font-size: 34px; } }
 
 /* รูปอุปกรณ์ / ชุดกล้อง / หมายเลขชิ้น */
-.icard-photo { margin: -16px -16px 6px; aspect-ratio: 4 / 3; overflow: hidden; border-radius: var(--radius) var(--radius) 0 0; background: var(--bg-soft); }
+.icard-photo { margin: calc(-1 * var(--pad)) calc(-1 * var(--pad)) 6px; aspect-ratio: 4 / 3; overflow: hidden; border-radius: var(--radius) var(--radius) 0 0; background: var(--bg-soft); }
 .icard-photo img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .detail-photo { margin: 0 0 14px; border-radius: 14px; overflow: hidden; background: var(--bg-soft); text-align: center; }
 .detail-photo img { max-width: 100%; max-height: 360px; object-fit: contain; display: block; margin: 0 auto; }
