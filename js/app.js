@@ -208,9 +208,13 @@ const readProfile = (form) => {
   };
 };
 
+// LINE เปิดลิงก์ที่มี ?openExternalBrowser=1 ด้วย Safari / Chrome
+const externalUrl = () => `${location.origin}${location.pathname}?openExternalBrowser=1${location.hash || ""}`;
 function inAppNote() {
   const app = inAppBrowser();
   if (!app) return "";
+  if (app === "LINE") return `<div class="note info inapp"><b>ใช้งานในแอป LINE ได้เลย</b> ด้วย<b>ชื่อผู้ใช้และรหัสผ่าน</b><br>
+    ถ้าจะเข้าสู่ระบบด้วย Google กดปุ่ม Google ด้านล่าง ระบบจะเปิดใน Safari / Chrome ให้ (Google ไม่อนุญาตให้ล็อกอินในแอป LINE)</div>`;
   return `<div class="note warn inapp"><b>คุณกำลังเปิดเว็บนี้ในเบราว์เซอร์ของ ${esc(app)}</b><br>
     การเข้าสู่ระบบด้วย Google ใช้ในแอปนี้ไม่ได้ ให้ใช้ <b>ชื่อผู้ใช้และรหัสผ่าน</b> หรือเปิดเว็บใน Safari / Chrome
     <div style="margin-top:8px"><button class="btn sm" type="button" data-copy>คัดลอกลิงก์ไปเปิดใน Safari</button></div></div>`;
@@ -228,7 +232,9 @@ function login(el) {
         ${state.authMsg ? `<p class="note err">${esc(state.authMsg)}</p>` : ""}
         <div class="seg auth-tabs"><button data-tab="in" class="on">เข้าสู่ระบบ</button><button data-tab="up">สมัครสมาชิก</button></div>
         <div data-pane="in">
-          <button class="btn google lg full-w" id="btn-google"${inApp ? " disabled" : ""}>${G_LOGO} เข้าสู่ระบบด้วย Google</button>
+          ${inAppBrowser() === "LINE"
+            ? `<a class="btn google lg full-w" href="${esc(externalUrl())}">${G_LOGO} ใช้ Google · เปิดใน Safari ↗</a>`
+            : `<button class="btn google lg full-w" id="btn-google"${inApp ? " disabled" : ""}>${G_LOGO} เข้าสู่ระบบด้วย Google</button>`}
           <div class="or"><span>หรือใช้ชื่อผู้ใช้</span></div>
           <form id="f-in" class="form" novalidate style="grid-template-columns:1fr">
             <label class="f"><span>ชื่อผู้ใช้</span><input class="inp" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" required></label>
@@ -269,7 +275,8 @@ function login(el) {
     $$("[data-tab]", el).forEach((x) => x.classList.toggle("on", x === b));
     $$("[data-pane]", el).forEach((p) => (p.hidden = p.dataset.pane !== b.dataset.tab));
   }));
-  $("#btn-google", el).onclick = () => store.signIn().catch(fail);
+  const gBtn = $("#btn-google", el);
+  if (gBtn) gBtn.onclick = () => store.signIn().catch(fail);
   const fi = $("#f-in", el);
   fi.onsubmit = async (e) => {
     e.preventDefault();
