@@ -153,7 +153,7 @@ export async function exportLoanReport({ from, to, rows, stats, typeLabel = "ท
   out.push(table([
     row([hs("ที่", 6), hs("วันที่ยืม – กำหนดคืน", 17), hs("ผู้ยืม", 22), hs("อุปกรณ์", 33), hs("สถานะ", 22)], true),
     ...(rows.length ? rows.map((l, i) => row([
-      cell(i + 1, { align: "center", size: 24 }), cell(`${sd(l.borrowDate)}\n– ${sd(l.dueDate)}`, { size: 24 }),
+      cell(i + 1, { align: "center", size: 24 }), cell(`${sd(l.borrowDate)}${l.pickupTime ? " " + l.pickupTime : ""}\n– ${sd(l.dueDate)}${l.returnTime ? " " + l.returnTime : ""}`, { size: 24 }),
       cell(`${l.borrowerName}\n${l.borrowerType === "student" ? `นักเรียน ${l.classroom || ""}${l.studentId ? `\nรหัส ${l.studentId}` : ""}` : l.department || "ครู/บุคลากร"}`, { size: 24 }),
       cell([...(l.items || []).map(lineText), extrasText(l)].filter(Boolean).join("\n"), { size: 24 }), cell(stTxt(l), { size: 24 }),
     ])) : [row([cell("ไม่มีข้อมูล", { span: 5, align: "center" })])]),

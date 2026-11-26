@@ -88,7 +88,14 @@ const opts = (arr, sel, placeholder) =>
 const fmtSize = (n) => (n > 1048576 ? (n / 1048576).toFixed(1) + " MB" : Math.max(1, Math.round(n / 1024)) + " KB");
 const isStaff = () => state.user?.role === "staff";
 const who = (l) => `${esc(l.borrowerName)} ${typeBadge(l.borrowerType)}<div class="muted">${esc(l.borrowerType === "student" ? studentInfo(l) : l.department || "")}</div>`;
-const dateRange = (l) => `${thShort(l.borrowDate)}${l.dueDate !== l.borrowDate ? ` – ${thShort(l.dueDate)}` : ""}`;
+const tm = (t) => (t ? ` ${t}` : "");
+const dateRange = (l) => l.dueDate !== l.borrowDate
+  ? `${thShort(l.borrowDate)}${tm(l.pickupTime)} – ${thShort(l.dueDate)}${tm(l.returnTime)}`
+  : `${thShort(l.borrowDate)}${l.pickupTime || l.returnTime ? ` ${l.pickupTime || "?"}–${l.returnTime || "?"}` : ""}`;
+// ช่องเวลารับ/คืนของ (ใช้ทั้งหน้ายืมและหน้าแก้ไข)
+const timeFields = (p = {}) => `<label class="f"><span>เวลามารับของที่ห้องโสต *</span><input class="inp" type="time" name="pickupTime" required step="900" value="${esc(p.pickupTime || "")}"></label>
+      <label class="f"><span>เวลานำของมาคืน *</span><input class="inp" type="time" name="returnTime" required step="900" value="${esc(p.returnTime || "")}"></label>`;
+const timeError = (a, b, f) => (a === b && f.elements.returnTime.value <= f.elements.pickupTime.value ? "ยืม-คืนวันเดียวกัน เวลาคืนต้องหลังเวลามารับ" : "");
 const typeChips = (name, sel) => `<div class="chips">${Object.entries(USER_TYPES).map(([k, v]) => `<label class="chip"><input type="radio" name="${name}" value="${k}"${sel === k ? " checked" : ""} required><span>${v}</span></label>`).join("")}</div>`;
 
 async function getItems(force) {
@@ -746,9 +753,10 @@ async function borrow(el, params) {
       <div class="full" id="sel"></div>
       <div class="full" id="kit"></div>
       <label class="f full add-item"><span class="sr">เพิ่มอุปกรณ์</span><select class="inp" id="add-item"></select></label>
-      <h2 class="full fh">2. วันที่</h2>
+      <h2 class="full fh">2. วันและเวลา</h2>
       <label class="f"><span>วันที่ยืม *</span><input class="inp" type="date" name="borrowDate" required value="${d0}" ${staff ? "" : `min="${t}"`}></label>
       <label class="f"><span>กำหนดคืน *</span><input class="inp" type="date" name="dueDate" required value="${d0}" min="${d0}"></label>
+      ${timeFields()}
       <h2 class="full fh">3. ผู้ยืม</h2>
       ${staff ? `
         <label class="f full"><span>ชื่อผู้ยืม *</span><input class="inp" name="borrowerName" required maxlength="80" value="${esc(u.name)}"></label>
@@ -887,6 +895,7 @@ async function borrow(el, params) {
     if (!f.reportValidity()) return;
     const [a, b] = range();
     if (b < a) return toast("กำหนดคืนต้องไม่ก่อนวันที่ยืม", true);
+    if (timeError(a, b, f)) return toast(timeError(a, b, f), true);
     const chosen = [...sel].filter(([, s]) => s.qty > 0);
     if (!chosen.length) return toast("กรุณาเลือกอุปกรณ์อย่างน้อย 1 รายการ", true);
     for (const [k, label] of [["battery", "แบตเตอรี่"], ["memory", "การ์ดหน่วยความจำ"]]) {
@@ -918,7 +927,7 @@ async function borrow(el, params) {
         classroom: p.classroom || "", studentNo: p.studentNo || "", studentId: p.studentId || "", department: p.department || "",
         items: lineItems, itemIds: lineItems.map((x) => x.itemId),
         extras: kitEl.innerHTML ? Object.fromEntries(["battery", "memory"].filter((k) => kitOn[k] && !ofKind(k).length && extras[k].trim()).map((k) => [k, extras[k].trim()])) : {},
-        borrowDate: a, dueDate: b, purpose: v.purpose, note: v.note.trim(),
+        borrowDate: a, dueDate: b, pickupTime: v.pickupTime, returnTime: v.returnTime, purpose: v.purpose, note: v.note.trim(),
         status: staff ? "approved" : "pending", reason: "", createdAt: Date.now(), ...(staff ? { approvedBy: u.name, onBehalf: true } : {}),
       };
       const id = await store.add("loans", loan);
@@ -984,7 +993,7 @@ async function showLoan(l, onChange) {
       <dt>ผู้ยืม</dt><dd>${who(l)}${contact?.phone ? `<div><a href="tel:${esc(contact.phone)}">${esc(contact.phone)}</a></div>` : ""}</dd>
       <dt>อุปกรณ์</dt><dd>${(l.items || []).map((x) => `${itemIcon(x)} ${esc(x.name)}${x.model ? ` <span class="muted">${esc(x.model)}</span>` : ""}${x.code ? ` <span class="muted">(${esc(x.code)})</span>` : ""} ${x.nos?.length ? `· หมายเลข #${x.nos.map(esc).join(", #")}` : `× ${x.qty}`}`).join("<br>")}</dd>
       ${extrasText(l) ? `<dt>อุปกรณ์เสริม</dt><dd>${esc(extrasText(l))}</dd>` : ""}
-      <dt>วันที่ยืม</dt><dd>${thDateLong(l.borrowDate)}</dd><dt>กำหนดคืน</dt><dd>${thDateLong(l.dueDate)}${isOverdue(l) ? ` <b style="color:var(--red)">(เกิน ${daysBetween(l.dueDate, today())} วัน)</b>` : ""}</dd>
+      <dt>มารับของ</dt><dd>${thDateLong(l.borrowDate)}${l.pickupTime ? ` · <b>${esc(l.pickupTime)} น.</b>` : ""}</dd><dt>กำหนดคืน</dt><dd>${thDateLong(l.dueDate)}${l.returnTime ? ` · <b>${esc(l.returnTime)} น.</b>` : ""}${isOverdue(l) ? ` <b style="color:var(--red)">(เกิน ${daysBetween(l.dueDate, today())} วัน)</b>` : ""}</dd>
       ${l.status === "returned" ? `<dt>คืนเมื่อ</dt><dd>${thDateLong(l.returnedDate)}${l.returnNote ? `<div class="muted">${esc(l.returnNote)}</div>` : ""}</dd>` : ""}
       <dt>ใช้สำหรับ</dt><dd>${esc(l.purpose) || "–"}</dd><dt>รายละเอียด</dt><dd>${esc(l.note) || "–"}</dd>
       ${l.approvedBy ? `<dt>ผู้อนุมัติ</dt><dd>${esc(l.approvedBy)}</dd>` : ""}</dl>
@@ -1014,6 +1023,7 @@ async function editLoan(l) {
         <div class="full who-card">${who(l)}</div>
         <label class="f"><span>วันที่ยืม *</span><input class="inp" type="date" name="borrowDate" required value="${esc(l.borrowDate)}"></label>
         <label class="f"><span>กำหนดคืน *</span><input class="inp" type="date" name="dueDate" required value="${esc(l.dueDate)}"></label>
+        ${timeFields(l)}
         <div class="full"><div class="el-h">อุปกรณ์</div><div id="el-lines"></div></div>
         ${ex.battery || ex.memory ? `<label class="f"><span>เบอร์แบตเตอรี่ (พิมพ์เอง)</span><input class="inp" name="exBattery" maxlength="40" value="${esc(ex.battery)}"></label>
         <label class="f"><span>เบอร์การ์ดหน่วยความจำ (พิมพ์เอง)</span><input class="inp" name="exMemory" maxlength="40" value="${esc(ex.memory)}"></label>` : ""}
@@ -1056,6 +1066,7 @@ async function editLoan(l) {
       if (!f.reportValidity()) return;
       const [a, b] = range();
       if (b < a) return toast("วันกำหนดคืนต้องไม่ก่อนวันที่ยืม", true);
+      if (timeError(a, b, f)) return toast(timeError(a, b, f), true);
       const keep = lines.filter((x) => (x.nos.size || x.qty) > 0);
       if (!keep.length) return toast("ต้องมีอุปกรณ์อย่างน้อย 1 รายการ (ถ้าไม่ยืมแล้วให้ลบรายการแทน)", true);
       for (const x of keep) {
@@ -1075,7 +1086,7 @@ async function editLoan(l) {
       const extras = {};
       if ((v.exBattery || "").trim()) extras.battery = v.exBattery.trim();
       if ((v.exMemory || "").trim()) extras.memory = v.exMemory.trim();
-      const patch = { borrowDate: a, dueDate: b, items, itemIds: items.map((x) => x.itemId), purpose: v.purpose, note: (v.note || "").trim(), extras, updatedAt: Date.now(), editedBy: state.user.name, editedAt: Date.now() };
+      const patch = { borrowDate: a, dueDate: b, pickupTime: f.elements.pickupTime.value, returnTime: f.elements.returnTime.value, items, itemIds: items.map((x) => x.itemId), purpose: v.purpose, note: (v.note || "").trim(), extras, updatedAt: Date.now(), editedBy: state.user.name, editedAt: Date.now() };
       try {
         await store.update("loans", l.id, patch);
         Object.assign(l, patch);
