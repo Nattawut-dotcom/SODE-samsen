@@ -86,10 +86,12 @@ service cloud.firestore {
       }
     }
 
-    // ข้อมูลระบบจองห้องเดิม (rooms, bookings, bookingContacts, calendarEvents) — เปิดให้พนักงานโสตอ่าน/ลบได้เท่านั้น
+    // ข้อมูลระบบจองห้องเดิม (rooms, bookings, bookingContacts) — เปิดให้พนักงานโสตอ่าน/ลบได้เท่านั้น
     match /rooms/{id} { allow read, delete: if isStaff(); }
     match /bookings/{id} { allow read, delete: if isStaff(); }
     match /bookingContacts/{id} { allow read, delete: if isStaff(); }
-    match /calendarEvents/{id} { allow read, delete: if isStaff(); }
+    // ปฏิทินงาน: Apps Script ของบัญชีโรงเรียนเป็นผู้เขียน (ผ่าน Google OAuth จึงไม่ผ่านกฎนี้) ผู้ใช้ที่เข้าสู่ระบบอ่านได้
+    match /calendarEvents/{id} { allow read: if active(); allow delete: if isStaff(); }
+    match /meta/{id} { allow read: if active(); }
   }
 }
