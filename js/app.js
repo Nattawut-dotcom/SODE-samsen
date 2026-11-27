@@ -240,8 +240,10 @@ function login(el) {
     <section class="hero hero-login">
       <div class="eyebrow">${esc(CONFIG.unitName)} · ${esc(CONFIG.schoolName)}</div>
       <h1>เข้าสู่ระบบ<br>ยืม-คืนอุปกรณ์</h1>
-      <p class="lead">ใช้บัญชี Google ของโรงเรียน <b class="nw">(@${esc(CONFIG.allowedDomain)})</b> ทั้งครูและนักเรียน</p>
+      <p class="lead">สำหรับครู บุคลากร และนักเรียนโรงเรียนสามเสนวิทยาลัย</p>
       <div class="auth-card">
+        <div class="school-only"><span class="so-ico" aria-hidden="true">🏫</span><div><b>ใช้อีเมลโรงเรียนเท่านั้น</b>
+          <span>เข้าสู่ระบบด้วยบัญชี Google ที่ลงท้ายด้วย <b class="nw">@${esc(CONFIG.allowedDomain)}</b><br>อีเมลส่วนตัว เช่น @gmail.com ใช้ไม่ได้</span></div></div>
         ${inAppNote()}
         ${state.authMsg ? `<p class="note err">${esc(state.authMsg)}</p>` : ""}
         ${inApp === "LINE"

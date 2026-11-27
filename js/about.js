@@ -49,12 +49,15 @@ export const ABOUT = {
     { key: "fb", name: "Facebook", handle: "samsenphoto", url: "https://www.facebook.com/samsenphoto/?locale=th_TH" },
     { key: "ig", name: "Instagram", handle: "@samsen.photo", url: "https://www.instagram.com/samsen.photo/" },
     { key: "tt", name: "TikTok", handle: "@samsen_photo", url: "https://www.tiktok.com/@samsen_photo" },
+    { key: "yt", name: "YouTube", handle: "งานเทคโนโลยีการศึกษา สามเสนวิทยาลัย", url: "https://www.youtube.com/@%E0%B8%87%E0%B8%B2%E0%B8%99%E0%B9%80%E0%B8%97%E0%B8%84%E0%B9%82%E0%B8%99%E0%B9%82%E0%B8%A5%E0%B8%A2%E0%B8%B5%E0%B8%81%E0%B8%B2%E0%B8%A3%E0%B8%A8%E0%B8%B6%E0%B8%81%E0%B8%A9%E0%B8%B2%E0%B8%AA%E0%B8%B2%E0%B8%A1%E0%B9%80%E0%B8%AA%E0%B8%99%E0%B8%A7%E0%B8%B4%E0%B8%97%E0%B8%A2" },
+    { key: "yt", name: "YouTube", handle: "Dek Sode Official", url: "https://www.youtube.com/@DekSodeOfficial" },
   ],
 };
 
 const ICONS = {
   fb: `<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M13.5 21v-7.5h2.6l.4-3h-3V8.6c0-.9.3-1.5 1.5-1.5h1.6V4.4c-.3 0-1.2-.1-2.3-.1-2.3 0-3.8 1.4-3.8 3.9v2.3H7.9v3h2.6V21h3z"/></svg>`,
   ig: `<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="3.5" width="17" height="17" rx="5" fill="none" stroke="currentColor" stroke-width="1.9"/><circle cx="12" cy="12" r="3.9" fill="none" stroke="currentColor" stroke-width="1.9"/><circle cx="17.1" cy="6.9" r="1.15" fill="currentColor"/></svg>`,
+  yt: `<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M21.6 7.2a2.5 2.5 0 0 0-1.8-1.8C18.2 5 12 5 12 5s-6.2 0-7.8.4a2.5 2.5 0 0 0-1.8 1.8C2 8.8 2 12 2 12s0 3.2.4 4.8a2.5 2.5 0 0 0 1.8 1.8C5.8 19 12 19 12 19s6.2 0 7.8-.4a2.5 2.5 0 0 0 1.8-1.8c.4-1.6.4-4.8.4-4.8s0-3.2-.4-4.8z"/><path fill="#fff" d="M10 15.2V8.8l5.3 3.2z"/></svg>`,
   tt: `<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M16.6 3c.3 2.3 1.6 3.8 3.9 4v2.7c-1.4.1-2.6-.3-3.9-1.1v5.6c0 3.6-2.7 6-6 6-3.2 0-5.6-2.5-5.6-5.6 0-3.4 3-6 6.6-5.5v2.9c-1.7-.4-3.6.6-3.6 2.6 0 1.5 1.2 2.7 2.7 2.7 1.6 0 2.9-1 2.9-3.2V3h3z"/></svg>`,
 };
 
@@ -88,7 +91,8 @@ export function aboutPage(el, { loggedIn, section } = {}) {
         ${loggedIn ? `<a class="btn lg" href="#/">ไปที่ระบบยืม-คืนอุปกรณ์</a>` : `<a class="btn lg" href="#/login">เข้าสู่ระบบ</a>`}
         <a class="btn lg ghost" href="#/?s=contact" data-jump="contact">ติดต่อเรา</a>
       </div>
-      <div class="ab-social-row">${A.socials.map((s) => `<a class="ab-sbtn ${s.key}" href="${esc(s.url)}" target="_blank" rel="noopener" aria-label="${esc(s.name)} ${esc(s.handle)}">${ICONS[s.key]}</a>`).join("")}</div>
+      ${loggedIn ? "" : `<p class="ab-login-hint">เข้าสู่ระบบด้วยอีเมลโรงเรียน <b>@samsenwit.ac.th</b> เท่านั้น</p>`}
+      <div class="ab-social-row">${A.socials.map((s) => `<a class="ab-sbtn ${s.key}" href="${esc(s.url)}" target="_blank" rel="noopener" aria-label="${esc(s.name)} ${esc(s.handle)}" title="${esc(s.name)} · ${esc(s.handle)}">${ICONS[s.key]}</a>`).join("")}</div>
     </div>
   </section>
 
