@@ -49,8 +49,8 @@ export const ABOUT = {
     { key: "fb", name: "Facebook", handle: "samsenphoto", url: "https://www.facebook.com/samsenphoto/?locale=th_TH" },
     { key: "ig", name: "Instagram", handle: "@samsen.photo", url: "https://www.instagram.com/samsen.photo/" },
     { key: "tt", name: "TikTok", handle: "@samsen_photo", url: "https://www.tiktok.com/@samsen_photo" },
-    { key: "yt", name: "YouTube", short: "งานเทคโน", handle: "งานเทคโนโลยีการศึกษา สามเสนวิทยาลัย", url: "https://www.youtube.com/@%E0%B8%87%E0%B8%B2%E0%B8%99%E0%B9%80%E0%B8%97%E0%B8%84%E0%B9%82%E0%B8%99%E0%B9%82%E0%B8%A5%E0%B8%A2%E0%B8%B5%E0%B8%81%E0%B8%B2%E0%B8%A3%E0%B8%A8%E0%B8%B6%E0%B8%81%E0%B8%A9%E0%B8%B2%E0%B8%AA%E0%B8%B2%E0%B8%A1%E0%B9%80%E0%B8%AA%E0%B8%99%E0%B8%A7%E0%B8%B4%E0%B8%97%E0%B8%A2" },
-    { key: "yt", name: "YouTube", short: "DekSode", handle: "Dek Sode Official", url: "https://www.youtube.com/@DekSodeOfficial" },
+    { key: "yt", name: "YouTube", handle: "งานเทคโนโลยีการศึกษา สามเสนวิทยาลัย", url: "https://www.youtube.com/@%E0%B8%87%E0%B8%B2%E0%B8%99%E0%B9%80%E0%B8%97%E0%B8%84%E0%B9%82%E0%B8%99%E0%B9%82%E0%B8%A5%E0%B8%A2%E0%B8%B5%E0%B8%81%E0%B8%B2%E0%B8%A3%E0%B8%A8%E0%B8%B6%E0%B8%81%E0%B8%A9%E0%B8%B2%E0%B8%AA%E0%B8%B2%E0%B8%A1%E0%B9%80%E0%B8%AA%E0%B8%99%E0%B8%A7%E0%B8%B4%E0%B8%97%E0%B8%A2" },
+    { key: "yt", name: "YouTube", handle: "Dek Sode Official", url: "https://www.youtube.com/@DekSodeOfficial" },
   ],
 };
 
@@ -92,7 +92,8 @@ export function aboutPage(el, { loggedIn, section } = {}) {
         <a class="btn lg ghost" href="#/?s=contact" data-jump="contact">ติดต่อเรา</a>
       </div>
       ${loggedIn ? "" : `<p class="ab-login-hint">เข้าสู่ระบบด้วยอีเมลโรงเรียน <b>@samsenwit.ac.th</b> เท่านั้น</p>`}
-      <div class="ab-social-row">${A.socials.map((s) => `<a class="ab-sitem" href="${esc(s.url)}" target="_blank" rel="noopener" aria-label="${esc(s.name)} ${esc(s.handle)}" title="${esc(s.name)} · ${esc(s.handle)}"><span class="ab-sbtn ${s.key}">${ICONS[s.key]}</span>${s.short ? `<small>${esc(s.short)}</small>` : ""}</a>`).join("")}</div>
+      <div class="ab-social-row">${A.socials.filter((s) => s.key !== "yt").map((s) => `<a class="ab-sitem" href="${esc(s.url)}" target="_blank" rel="noopener" aria-label="${esc(s.name)} ${esc(s.handle)}" title="${esc(s.name)} · ${esc(s.handle)}"><span class="ab-sbtn ${s.key}">${ICONS[s.key]}</span></a>`).join("")}
+        ${A.socials.some((s) => s.key === "yt") ? `<a class="ab-sitem" href="#/about?s=contact" data-jump="contact" data-flash="yt" aria-label="ช่อง YouTube ของเรา" title="ช่อง YouTube ของเรา — เลือกช่องด้านล่าง"><span class="ab-sbtn yt">${ICONS.yt}</span></a>` : ""}</div>
     </div>
   </section>
 
@@ -128,6 +129,9 @@ export function aboutPage(el, { loggedIn, section } = {}) {
   </div></section>`;
 
   const jump = (id) => { const t = el.querySelector("#ab-" + id); if (t) t.scrollIntoView({ behavior: "smooth", block: "start" }); };
-  el.querySelectorAll("[data-jump]").forEach((a) => (a.onclick = (e) => { e.preventDefault(); jump(a.dataset.jump); }));
+  el.querySelectorAll("[data-jump]").forEach((a) => (a.onclick = (e) => {
+    e.preventDefault(); jump(a.dataset.jump);
+    if (a.dataset.flash) el.querySelectorAll(".ab-social." + a.dataset.flash).forEach((c) => { c.classList.remove("flash"); void c.offsetWidth; c.classList.add("flash"); });
+  }));
   if (section) setTimeout(() => jump(section), 60);
 }
