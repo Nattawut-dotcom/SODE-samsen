@@ -59,8 +59,8 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .role-tag { font-size: 11px; padding: 2px 8px; border-radius: 980px; background: var(--bg-soft); color: var(--ink-2); }
 .nav-user .uname { max-width: 150px; overflow: hidden; text-overflow: ellipsis; }
 .nav-user .uname, .brand em { display: none; }
-@media (min-width: 1100px) and (max-width: 1399px) { .nav-inner { max-width: none; padding: 0 18px; gap: 14px; } .nav-links { gap: 0; } .nav-links a { padding: 6px 8px; } }
-@media (min-width: 1400px) { .nav-inner { max-width: 1320px; } .nav-user .uname, .brand em { display: inline; } }
+@media (min-width: 1100px) and (max-width: 1799px) { .nav-inner { max-width: none; padding: 0 18px; gap: 14px; } .nav-links { gap: 0; } .nav-links a { padding: 6px 8px; } }
+@media (min-width: 1800px) { .nav-inner { max-width: 1680px; } .nav-user .uname, .brand em { display: inline; } }
 @media (max-width: 760px) {
   .nav-inner { flex-wrap: wrap; height: auto; padding: 8px 16px; gap: 6px 12px; }
   .nav-links { order: 3; flex-basis: 100%; }
