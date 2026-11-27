@@ -6,6 +6,7 @@ import {
   loanOn, loanEnd, lineText, extrasText, itemStatus, holdIn, holdOn, HOLD_KINDS, availableIn, computeStats, sortedEntries, monthShort, weekLabel, inAppBrowser,
 } from "./util.js";
 import { aboutPage } from "./about.js";
+import { manualsPage } from "./manuals.js";
 import { eventsPage, loadEvents, computeEventStats, eventType, eventTime, SLOT_NOTE } from "./events.js";
 import { exportEventReport, exportEventExcel, exportEventPdf, exportLoanReport, exportLoanExcel, exportLoanPdf, exportBudgetReport, exportBudgetExcel, exportBudgetPdf } from "./report.js";
 
@@ -117,7 +118,7 @@ async function refreshPending() {
 // ============================================================
 //  แถบนำทาง + Router
 // ============================================================
-const NAV_USER = [["", "หน้าหลัก"], ["events", "ปฏิทินงาน"], ["items", "สถานะอุปกรณ์"], ["borrow", "ยืมอุปกรณ์"], ["my", "รายการของฉัน"]];
+const NAV_USER = [["", "หน้าหลัก"], ["events", "ปฏิทินงาน"], ["items", "สถานะอุปกรณ์"], ["borrow", "ยืมอุปกรณ์"], ["my", "รายการของฉัน"], ["manuals", "คู่มือ"]];
 const NAV_STAFF = [["requests", "คำขอยืม-คืน"], ["stats", "สถิติ"], ["budget", "งบประมาณ"], ["settings", "ตั้งค่า"]];
 const STAFF_ONLY = new Set(NAV_STAFF.map((x) => x[0]));
 
@@ -159,7 +160,8 @@ function renderDemoBar() {
 
 const about = (el, params) => aboutPage(el, { loggedIn: !!state.user, section: params.get("s") });
 const events = (el) => eventsPage(el, { fail });
-const ROUTES = { "": home, about, login, events, items, borrow, my, profile, requests, stats, budget, settings };
+const manuals = (el, params) => manualsPage(el, { params, fail, toast, openModal, user: state.user, staff: isStaff() });
+const ROUTES = { "": home, about, login, events, manuals, items, borrow, my, profile, requests, stats, budget, settings };
 
 const loadingView = () => { const d = document.createElement("div"); d.className = "loading"; d.innerHTML = `<span class="spin" aria-hidden="true"></span>กำลังโหลด…`; return d; };
 async function render(instant) {

@@ -32,8 +32,8 @@ async function shrinkImage(file) {
     return file;
   }
 }
-function checkSize(file) {
-  if (file.size > MAX_BYTES) throw new Error(`ไฟล์ "${file.name}" ใหญ่เกิน ${CONFIG.maxFileMB} MB`);
+function checkSize(file, maxMB = CONFIG.maxFileMB) {
+  if (file.size > maxMB * 1024 * 1024) throw new Error(`ไฟล์ "${file.name}" ใหญ่เกิน ${maxMB} MB`);
 }
 
 const BANNED_MSG = "บัญชีนี้ถูกระงับการใช้งาน กรุณาติดต่อพนักงานโสต";
@@ -162,10 +162,10 @@ function demoStore() {
     },
     async update(coll, id, patch) { const r = (data[coll] || []).find((x) => x.id === id); if (r) Object.assign(r, patch); save(); },
     async remove(coll, id) { data[coll] = (data[coll] || []).filter((r) => r.id !== id); save(); },
-    async saveFile(file) {
-      file = await shrinkImage(file); checkSize(file);
+    async saveFile(file, { coll = "files", maxMB } = {}) {
+      file = await shrinkImage(file); checkSize(file, maxMB);
       const id = uid(); memFiles.set(id, file);
-      return { id, name: file.name, type: file.type, size: file.size };
+      return { id, name: file.name, type: file.type, size: file.size, ...(coll !== "files" ? { coll } : {}) };
     },
     async getFileBlob(meta) {
       const f = memFiles.get(meta.id);
@@ -287,26 +287,28 @@ function firebaseStore() {
     async set(coll, id, obj) { await F.setDoc(F.doc(db, coll, id), obj); },
     async update(coll, id, patch) { await F.updateDoc(F.doc(db, coll, id), patch); },
     async remove(coll, id) { await F.deleteDoc(F.doc(db, coll, id)); },
-    async saveFile(file) {
-      file = await shrinkImage(file); checkSize(file);
+    // coll: คอลเลกชันที่เก็บไฟล์ ("files" = หลักฐานงบประมาณ, "manualFiles" = คู่มือ) · extra: ฟิลด์เพิ่ม เช่น audience
+    async saveFile(file, { coll = "files", extra = {}, maxMB } = {}) {
+      file = await shrinkImage(file); checkSize(file, maxMB);
       const bytes = new Uint8Array(await file.arrayBuffer());
       const n = Math.max(1, Math.ceil(bytes.length / CHUNK));
-      const ref = await F.addDoc(F.collection(db, "files"), { name: file.name, type: file.type, size: file.size, chunks: n, uid: auth.currentUser.uid, createdAt: Date.now() });
+      const ref = await F.addDoc(F.collection(db, coll), { ...extra, name: file.name, type: file.type, size: file.size, chunks: n, uid: auth.currentUser.uid, createdAt: Date.now() });
       for (let i = 0; i < n; i++) {
-        await F.setDoc(F.doc(db, "files", ref.id, "chunks", String(i)), { i, data: F.Bytes.fromUint8Array(bytes.subarray(i * CHUNK, (i + 1) * CHUNK)) });
+        await F.setDoc(F.doc(db, coll, ref.id, "chunks", String(i)), { i, data: F.Bytes.fromUint8Array(bytes.subarray(i * CHUNK, (i + 1) * CHUNK)) });
       }
-      return { id: ref.id, name: file.name, type: file.type, size: file.size };
+      return { id: ref.id, name: file.name, type: file.type, size: file.size, ...(coll !== "files" ? { coll } : {}) };
     },
     async getFileBlob(meta) {
-      const snap = await F.getDocs(F.collection(db, "files", meta.id, "chunks"));
+      const snap = await F.getDocs(F.collection(db, meta.coll || "files", meta.id, "chunks"));
       const parts = snap.docs.map((d) => d.data()).sort((a, b) => a.i - b.i).map((d) => d.data.toUint8Array());
       if (!parts.length) throw new Error("ไม่พบไฟล์");
       return new Blob(parts, { type: meta.type || "application/octet-stream" });
     },
     async removeFile(meta) {
-      const snap = await F.getDocs(F.collection(db, "files", meta.id, "chunks"));
+      const c = meta.coll || "files";
+      const snap = await F.getDocs(F.collection(db, c, meta.id, "chunks"));
       await Promise.all(snap.docs.map((d) => F.deleteDoc(d.ref)));
-      await F.deleteDoc(F.doc(db, "files", meta.id));
+      await F.deleteDoc(F.doc(db, c, meta.id));
     },
   };
 }
