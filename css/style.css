@@ -296,8 +296,9 @@ table.t { width: 100%; border-collapse: collapse; font-size: 14px; }
 .kpi-alert .v { color: var(--red); }
 .home-grid { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); gap: 16px; align-items: start; }
 @media (max-width: 900px) { .home-grid { grid-template-columns: 1fr; } }
-.day-list { display: grid; gap: 8px; }
-.day-item { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; border: 1px solid var(--line-soft); background: #fff; border-radius: 12px; padding: 10px 12px; font: inherit; cursor: pointer; }
+.day-list { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
+#day-card { min-width: 0; overflow: hidden; }
+.day-item { display: flex; align-items: center; gap: 12px; width: 100%; min-width: 0; text-align: left; border: 1px solid var(--line-soft); background: #fff; border-radius: 12px; padding: 10px 12px; font: inherit; cursor: pointer; }
 .day-item:hover { background: #fafafc; }
 .day-item.static { cursor: pointer; }
 .di-ico { font-size: 22px; flex: none; }
