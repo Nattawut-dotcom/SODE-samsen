@@ -161,7 +161,8 @@ const about = (el, params) => aboutPage(el, { loggedIn: !!state.user, section: p
 const events = (el) => eventsPage(el, { fail });
 const ROUTES = { "": home, about, login, events, items, borrow, my, profile, requests, stats, budget, settings };
 
-async function render() {
+const loadingView = () => { const d = document.createElement("div"); d.className = "loading"; d.innerHTML = `<span class="spin" aria-hidden="true"></span>กำลังโหลด…`; return d; };
+async function render(instant) {
   const tk = ++renderToken;
   $("#modal-root").replaceChildren(); // ปิดหน้าต่างที่ค้างอยู่เมื่อเปลี่ยนหน้า
   const [path, qs] = location.hash.replace(/^#\/?/, "").split("?");
@@ -174,12 +175,16 @@ async function render() {
   if (STAFF_ONLY.has(name) && !isStaff()) name = "";
   renderNav(name);
   const el = document.createElement("div");
+  // ถ้าหน้าใหม่โหลดข้อมูลนาน ให้เปลี่ยนเป็น "กำลังโหลด…" ก่อน (หลังล็อกอิน/ออกจากระบบ เปลี่ยนทันที)
+  const showLoading = () => { if (tk === renderToken) { view.replaceChildren(loadingView()); window.scrollTo(0, 0); } };
+  const slow = instant ? (showLoading(), 0) : setTimeout(showLoading, 250);
   try {
     await ROUTES[name](el, params);
   } catch (e) {
     console.error(e);
     el.innerHTML = `<div class="wrap"><div class="empty"><p>โหลดข้อมูลไม่สำเร็จ</p><p class="note err" style="display:inline-block">${esc(friendly(e))}</p></div></div>`;
   }
+  clearTimeout(slow);
   if (tk !== renderToken) return;
   view.replaceChildren(el);
   window.scrollTo(0, 0);
@@ -1634,12 +1639,12 @@ function accountForm(done) {
     view.innerHTML = `<div class="wrap"><div class="empty"><p class="note err" style="display:inline-block">เชื่อมต่อระบบไม่สำเร็จ: ${esc(friendly(e))}</p></div></div>`;
     return;
   }
-  window.addEventListener("hashchange", render);
+  window.addEventListener("hashchange", () => render());
   store.onAuth(async (user, err) => {
     if (err) state.authMsg = friendly(err);
     state.user = user; state.items = null; state.pending = 0;
     renderDemoBar();
-    if (user) await refreshPending();
-    render();
+    render(true); // เปลี่ยนหน้าทันที ไม่ต้องรอข้อมูล
+    if (user) refreshPending().catch(() => {});
   });
 })();
