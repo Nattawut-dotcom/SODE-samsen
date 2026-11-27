@@ -8,7 +8,7 @@ export const CONFIG = {
   //    ถ้ายังเป็น "PASTE_HERE" เว็บจะทำงานใน "โหมดตัวอย่าง" (ข้อมูลเก็บในเครื่องนี้เท่านั้น)
   firebase: {
     apiKey: "AIzaSyApxZlpF79uUCNIG7c5ZtptnqO5_LNOwbs",
-    authDomain: "sode-samsen-room.firebaseapp.com",
+    authDomain: "audio-samsen.web.app", // ให้หน้าล็อกอิน Google อยู่โดเมนเดียวกับเว็บ (Safari บน iPhone บล็อกข้ามโดเมน)
     projectId: "sode-samsen-room",
     storageBucket: "sode-samsen-room.firebasestorage.app",
     messagingSenderId: "481706427970",
