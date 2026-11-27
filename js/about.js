@@ -16,7 +16,7 @@ export const ABOUT = {
   services: [
     ["📷", "ถ่ายภาพและวีดิทัศน์", "บันทึกภาพนิ่ง ภาพเคลื่อนไหว และผลิตสื่อวีดิทัศน์กิจกรรมของโรงเรียน"],
     ["📡", "ถ่ายทอดสด", "ถ่ายทอดสดกิจกรรมภายในโรงเรียนผ่านจอ LED หน้าอาคาร 3"],
-    ["🎙️", "ห้องประชุมและเครื่องเสียง", "ดูแลห้องประชุม เครื่องเสียง และโสตทัศนูปกรณ์ให้พร้อมใช้งาน"],
+    ["🎙️", "ห้องประชุม เครื่องเสียง และบันทึกเสียง", "ดูแลห้องประชุม เครื่องเสียง และโสตทัศนูปกรณ์ ให้พร้อมใช้งาน รวมถึงรับบันทึกเสียง"],
     ["🛠️", "ซ่อมบำรุงอุปกรณ์", "ซ่อมบำรุงโสตทัศนูปกรณ์และเครื่องอิเล็กทรอนิกส์ภายในโรงเรียน"],
   ],
   // ภาระหน้าที่ (ตามคำสั่งโรงเรียน) จัดกลุ่มเพื่ออ่านง่าย — หน้าเว็บแสดงเลขข้อเรียงใหม่ 1–14 ตามลำดับ (ตัวเลขในข้อมูลด้านล่างคือเลขข้อในคำสั่งเดิม)
@@ -65,6 +65,8 @@ const initial = (n) => (String(n).replace(/^(นาย|นางสาว|นา
 // ภาษาไทยไม่มีเว้นวรรคระหว่างคำ เบราว์เซอร์จึงอาจตัดบรรทัดกลางคำ (เช่น "ถ่ายทอด|สด")
 // ให้ขึ้นบรรทัดใหม่ได้เฉพาะตรงเว้นวรรค
 const noBreak = (t) => String(t).split(" ").map((w) => `<span class="nw">${esc(w)}</span>`).join(" ");
+// ใช้กับข้อความในการ์ด: ห้ามตัดกลางคำเฉพาะเมื่อทุกช่วง (คั่นด้วยเว้นวรรค) สั้นพอจะไม่ล้นการ์ด
+const fit = (t) => (String(t).split(" ").every((w) => w.length <= 24) ? noBreak(t) : esc(t));
 
 function person(p, lead) {
   const pic = p.photo ? `<img src="${esc(p.photo)}" alt="${esc(p.name)}" loading="lazy">` : `<span aria-hidden="true">${esc(initial(p.name))}</span>`;
@@ -91,7 +93,7 @@ export function aboutPage(el, { loggedIn, section } = {}) {
   </section>
 
   <section class="band"><div class="wrap ab-sec">
-    <div class="ab-services">${A.services.map(([i, t, d]) => `<div class="ab-svc"><span class="ico">${i}</span><h3>${esc(t)}</h3><p>${esc(d)}</p></div>`).join("")}</div>
+    <div class="ab-services">${A.services.map(([i, t, d]) => `<div class="ab-svc"><span class="ico">${i}</span><h3>${fit(t)}</h3><p>${fit(d)}</p></div>`).join("")}</div>
   </div></section>
 
   <section id="ab-staff"><div class="wrap ab-sec">
