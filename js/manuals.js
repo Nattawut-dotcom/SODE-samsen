@@ -64,7 +64,7 @@ function slideHtml(p, i, total, m) {
       <div class="sl-head"><span class="sl-num">${esc(p.n)}</span><div><span class="sl-kicker">ขั้นตอนที่ ${esc(p.n)}</span><h3>${md(p.title)}</h3></div></div>
       <div class="sl-cols">
         <div class="sl-text"><p>${md(p.text)}</p>
-          ${p.fields?.length ? `<div class="sl-fields">${p.fields.map(([k, v]) => `<div><span>${esc(k)}</span><b>${esc(v)}</b></div>`).join("")}</div>` : ""}
+          ${p.fields?.length ? `<div class="sl-fields">${p.fields.map((f) => { const [k, v] = Array.isArray(f) ? f : [f.label, f.value]; return `<div><span>${esc(k)}</span><b>${esc(v)}</b></div>`; }).join("")}</div>` : ""}
           ${p.tip ? `<p class="sl-tip">💡 ${md(p.tip)}</p>` : ""}</div>
         <div class="sl-visual">${visual(p.visual)}</div>
       </div>${foot}</div>`;
