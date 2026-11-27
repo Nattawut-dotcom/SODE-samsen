@@ -6,7 +6,7 @@
 export const ABOUT = {
   unit: "งานเทคโนโลยีการศึกษา",
   school: "โรงเรียนสามเสนวิทยาลัย",
-  intro: "ดูแลสื่อ เทคโนโลยี และโสตทัศนูปกรณ์ของโรงเรียน ทั้งงานถ่ายภาพ วีดิทัศน์ ถ่ายทอดสด ห้องประชุม และเครื่องเสียง เพื่อสนับสนุนการเรียนรู้และกิจกรรมของโรงเรียน",
+  intro: "ดูแลสื่อ เทคโนโลยี และโสตทัศนูปกรณ์ของโรงเรียน ทั้งงานถ่ายภาพ วีดิทัศน์ ถ่ายทอดสด ห้องประชุม และเครื่องเสียง เพื่อสนับสนุนการเรียนรู้ และกิจกรรมของโรงเรียน",
   head: { name: "นายสุชาติ กิจดี", role: "หัวหน้างานเทคโนโลยีการศึกษา", photo: "" },
   staff: [
     { name: "นายชาตรี อุลิศ", role: "บุคลากรงานเทคโนโลยีการศึกษา", photo: "" },
@@ -62,6 +62,10 @@ const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "
 // อักษรย่อจากชื่อจริง (ตัดคำนำหน้า)
 const initial = (n) => (String(n).replace(/^(นาย|นางสาว|นาง|ว่าที่ร้อยตรี|ดร\.)\s*/, "").trim()[0] || "?");
 
+// ภาษาไทยไม่มีเว้นวรรคระหว่างคำ เบราว์เซอร์จึงอาจตัดบรรทัดกลางคำ (เช่น "ถ่ายทอด|สด")
+// ให้ขึ้นบรรทัดใหม่ได้เฉพาะตรงเว้นวรรค
+const noBreak = (t) => String(t).split(" ").map((w) => `<span class="nw">${esc(w)}</span>`).join(" ");
+
 function person(p, lead) {
   const pic = p.photo ? `<img src="${esc(p.photo)}" alt="${esc(p.name)}" loading="lazy">` : `<span aria-hidden="true">${esc(initial(p.name))}</span>`;
   return `<figure class="ab-person${lead ? " lead" : ""}"><div class="ab-pic">${pic}</div>
@@ -77,7 +81,7 @@ export function aboutPage(el, { loggedIn, section } = {}) {
       <img class="ab-logo" src="img/logo.png" alt="ตราโรงเรียนสามเสนวิทยาลัย" width="290" height="341">
       <div class="eyebrow">${esc(A.school)}</div>
       <h1>${esc(A.unit)}</h1>
-      <p class="lead">${esc(A.intro)}</p>
+      <p class="lead">${noBreak(A.intro)}</p>
       <div class="hero-actions">
         ${loggedIn ? `<a class="btn lg" href="#/">ไปที่ระบบยืม-คืนอุปกรณ์</a>` : `<a class="btn lg" href="#/login">เข้าสู่ระบบ</a>`}
         <a class="btn lg ghost" href="#/?s=contact" data-jump="contact">ติดต่อเรา</a>
