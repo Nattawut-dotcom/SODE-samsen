@@ -84,6 +84,9 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .section { padding: 10px 0 56px; }
 .band { background: var(--bg-soft); }
 .loading, .empty { color: var(--ink-3); text-align: center; padding: 56px 16px; }
+.loading { display: flex; align-items: center; justify-content: center; gap: 10px; min-height: 40vh; }
+.spin { width: 18px; height: 18px; border-radius: 50%; border: 2px solid var(--line); border-top-color: var(--blue); animation: spin .7s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
 .footer { border-top: 1px solid var(--line-soft); background: var(--bg-soft); color: var(--ink-3); font-size: 12px; text-align: center; padding: 18px; }
 .footer p { margin: 0; }
 .footer .credit { margin-top: 4px; font-size: 11px; color: var(--ink-3); opacity: .8; }
