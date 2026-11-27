@@ -40,7 +40,7 @@ function visual(v = {}) {
       <div class="vz-grid">${(v.items || []).map((x) => `<span class="vz-folder${x === v.pick ? " hl" : ""}">${FOLDER}<em>${esc(x)}</em>${x === v.pick ? CURSOR : ""}</span>`).join("")}</div>
       <div class="vz-label">ดับเบิลคลิก</div></div>`;
   if (v.kind === "copy") return `<div class="vz vz-copy">
-      <div class="vz-explorer mini"><div class="vz-addr">📁 …\\2566</div>
+      <div class="vz-explorer mini"><div class="vz-addr">📁 ${esc(v.path || "…")}</div>
         <span class="vz-folder hl">${FOLDER}<em>${esc(v.folder || "โฟลเดอร์กิจกรรม")}</em></span>
         <div class="vz-menu ctx"><span>Open</span><span class="hl">Copy ${CURSOR}</span><span>Rename</span></div></div>
       <div class="vz-arrow">→</div>
@@ -50,33 +50,50 @@ function visual(v = {}) {
   return "";
 }
 
-// ---------- สไลด์ 16:9 ----------
+// ---------- สไลด์ 16:9 (สไตล์เดียวกับสไลด์สอนของครูณัฐวุฒิ) ----------
+const pad2 = (n) => String(n).padStart(2, "0");
+const BLOB = (cls) => `<span class="sl-blob ${cls}" aria-hidden="true"><i></i></span>`;
 function slideHtml(p, i, total, m) {
-  const foot = `<div class="sl-foot"><span>${esc(m.title)}</span><span>${i + 1} / ${total}</span></div>`;
+  const by = esc(m.byline || "งานเทคโนโลยีการศึกษา");
+  const num = `<span class="sl-pno">${pad2(i + 1)}</span>`;
+  const head = (title, n) => `<div class="sl-head">${n ? `<span class="sl-ring">${esc(n)}</span>` : ""}<h3>${md(title)}</h3><span class="sl-by">${by}</span></div>`;
   if (p.type === "cover") return `<div class="sl sl-cover">
-      <div class="sl-cover-l"><span class="sl-kicker">${esc(p.kicker || "คู่มือการใช้งาน")}</span>
-        <h2>${md(p.title)}</h2><p class="sl-lead">${md(p.text)}</p>
-        ${p.note ? `<p class="sl-note">ℹ️ ${md(p.note)}</p>` : ""}</div>
-      <div class="sl-cover-r"><span class="sl-icon">${esc(m.icon || "📘")}</span>
-        ${p.steps?.length ? `<ol class="sl-mini">${p.steps.map((s, k) => `<li><b>${k + 1}</b><span>${esc(s)}</span></li>`).join("")}</ol>` : ""}</div>
-      ${foot}</div>`;
-  if (p.type === "step") return `<div class="sl sl-step">
-      <div class="sl-head"><span class="sl-num">${esc(p.n)}</span><div><span class="sl-kicker">ขั้นตอนที่ ${esc(p.n)}</span><h3>${md(p.title)}</h3></div></div>
+      ${BLOB("b1")}${BLOB("b2")}${BLOB("b3")}
+      <span class="sl-corner tl">${by}</span>
+      <div class="sl-cover-mid"><h2>${md(p.title)}</h2>${p.pill ? `<span class="sl-pill">${md(p.pill)}</span>` : ""}</div>
+      ${p.left ? `<span class="sl-corner bl">${md(p.left)}</span>` : ""}${p.right ? `<span class="sl-corner br">${md(p.right)}</span>` : ""}${num}</div>`;
+  if (p.type === "overview") return `<div class="sl sl-over">${head(p.title)}
+      <div class="sl-over-body"><ol class="sl-olist">${(p.items || []).map((x, k) => `<li><span class="sl-ring">${k + 1}</span><div><b>${md(x.t)}</b><span>${md(x.d)}</span></div></li>`).join("")}</ol>
+        ${BLOB("b4")}</div>
+      ${p.pills?.length ? `<div class="sl-pills">${p.pills.map((x, k) => `<span class="sl-tag ${k % 2 ? "red" : ""}">${md(x)}</span>`).join("")}</div>` : ""}${num}</div>`;
+  if (p.type === "step") return `<div class="sl sl-step">${head(p.title, p.n)}
       <div class="sl-cols">
-        <div class="sl-text"><p>${md(p.text)}</p>
+        <div class="sl-shot"><div class="sl-visual">${visual(p.visual)}</div></div>
+        <div class="sl-text"><p class="sl-say">${md(p.text)}</p>
           ${p.fields?.length ? `<div class="sl-fields">${p.fields.map((f) => { const [k, v] = Array.isArray(f) ? f : [f.label, f.value]; return `<div><span>${esc(k)}</span><b>${esc(v)}</b></div>`; }).join("")}</div>` : ""}
-          ${p.tip ? `<p class="sl-tip">💡 ${md(p.tip)}</p>` : ""}</div>
-        <div class="sl-visual">${visual(p.visual)}</div>
-      </div>${foot}</div>`;
-  if (p.type === "image") return `<div class="sl sl-image">${p.title ? `<h3>${md(p.title)}</h3>` : ""}
+          ${p.tip ? `<p class="sl-callout"><span aria-hidden="true">💡</span><span><b>เคล็ดลับ:</b> ${md(p.tip)}</span></p>` : ""}</div>
+      </div>${num}</div>`;
+  if (p.type === "image") return `<div class="sl sl-image">${p.title ? head(p.title) : ""}
       <div class="sl-img"><img src="${esc(p.src)}" alt="${esc(p.caption || p.title || "")}" loading="lazy"></div>
-      ${p.caption ? `<p class="sl-cap">${md(p.caption)}</p>` : ""}${foot}</div>`;
-  if (p.type === "end") return `<div class="sl sl-end">
-      <div class="sl-end-head"><span class="sl-kicker">สรุป</span><h3>${md(p.title || "สรุปขั้นตอน")}</h3></div>
-      <ol class="sl-check">${(p.checklist || []).map((x, k) => `<li><b>${k + 1}</b><span>${md(x)}</span></li>`).join("")}</ol>
-      ${p.help ? `<p class="sl-help">🙋 ${md(p.help)}</p>` : ""}${foot}</div>`;
+      ${p.caption ? `<p class="sl-cap">${md(p.caption)}</p>` : ""}${num}</div>`;
+  if (p.type === "end") {
+    const groups = p.groups || [{ title: "", items: p.checklist || [] }];
+    let k = 0;
+    return `<div class="sl sl-end">${head(p.title || "สรุปขั้นตอน")}
+      <div class="sl-cards">${groups.map((g, gi) => `<div class="sl-card"><div class="sl-card-h"><span class="sl-badge ${gi % 2 ? "red" : ""}">${esc(g.icon || "✓")}</span><b>${md(g.title)}</b></div>
+        <ol class="sl-dots">${(g.items || []).map((x) => `<li><span class="sl-dot">${++k}</span><span>${md(x)}</span></li>`).join("")}</ol></div>`).join("")}</div>
+      ${p.help ? `<p class="sl-callout"><span aria-hidden="true">🙋</span><span>${md(p.help)}</span></p>` : ""}${num}</div>`;
+  }
   if (p.type === "pdf") return `<div class="sl sl-pdf" data-pdf="${p.n}"><div class="sl-pdf-load"><span class="spin"></span></div></div>`;
-  return `<div class="sl">${foot}</div>`;
+  return `<div class="sl">${num}</div>`;
+}
+// ฟอนต์หัวข้อแบบสไลด์ต้นฉบับ (Prompt) โหลดเมื่อเปิดหน้าคู่มือ
+function loadSlideFont() {
+  if (document.getElementById("font-prompt")) return;
+  const l = document.createElement("link");
+  l.id = "font-prompt"; l.rel = "stylesheet";
+  l.href = "https://fonts.googleapis.com/css2?family=Prompt:wght@400;500;600;700;800&display=swap";
+  document.head.append(l);
 }
 
 // ---------- PDF: โหลด pdf.js เมื่อเปิดใช้งาน ----------
@@ -198,6 +215,7 @@ function pdfForm({ openModal, toast, fail, done }) {
 }
 
 export async function manualsPage(el, { params, fail, toast, openModal, user, staff }) {
+  loadSlideFont();
   el.innerHTML = `<div class="wrap"><div class="page-head head-row"><div><h1>คู่มือการใช้งาน</h1><p>คู่มือและเอกสารจากงานเทคโนโลยีการศึกษา เปิดอ่านเป็นสไลด์ทีละหน้า ทั้งบนคอมและมือถือ</p></div>
       ${staff ? `<button class="btn" id="m-add">＋ เพิ่มคู่มือ (PDF)</button>` : ""}</div></div>
     <section class="band"><div class="wrap" style="padding-top:24px;padding-bottom:56px"><div id="mn"></div></div></section>`;
