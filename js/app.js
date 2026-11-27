@@ -5,6 +5,7 @@ import {
   mondayOf, typeLabel, shortType, catIcon, itemIcon, studentInfo, academicYearOf, academicRange, catOrder, LOAN_STATUS, ITEM_STATUS, isOverdue, loanState, ACTIVE, loanUnits, itemsText,
   loanOn, loanEnd, lineText, extrasText, itemStatus, holdIn, holdOn, HOLD_KINDS, availableIn, computeStats, sortedEntries, monthShort, weekLabel, inAppBrowser,
 } from "./util.js";
+import { aboutPage } from "./about.js";
 import { exportLoanReport, exportLoanExcel, exportLoanPdf, exportBudgetReport, exportBudgetExcel, exportBudgetPdf } from "./report.js";
 
 const state = { user: null, items: null, pending: 0, authMsg: "" };
@@ -119,9 +120,17 @@ const NAV_USER = [["", "หน้าหลัก"], ["items", "สถานะ�
 const NAV_STAFF = [["requests", "คำขอยืม-คืน"], ["stats", "สถิติ"], ["budget", "งบประมาณ"], ["settings", "ตั้งค่า"]];
 const STAFF_ONLY = new Set(NAV_STAFF.map((x) => x[0]));
 
+// เมนูก่อนเข้าสู่ระบบ (ข้อมูลภายนอก)
+const NAV_PUBLIC = [["about", "เกี่ยวกับเรา"], ["about?s=staff", "บุคลากร"], ["about?s=duties", "ภาระหน้าที่"], ["about?s=contact", "ติดต่อ"]];
 function renderNav(active) {
   const u = state.user;
-  const links = !u || !u.type ? [] : [...NAV_USER, ...(isStaff() ? NAV_STAFF : [])];
+  if (!u) {
+    const cur = location.hash.replace(/^#\/?/, "");
+    $("#nav-links").innerHTML = NAV_PUBLIC.map(([p, l]) => `<a href="#/${p}" class="${active === "about" && (cur === p || (p === "about" && !cur.includes("s="))) ? "active" : ""}">${l}</a>`).join("");
+    $("#nav-user").innerHTML = active === "login" ? "" : `<a class="btn sm" href="#/login">เข้าสู่ระบบ</a>`;
+    return;
+  }
+  const links = !u.type ? [] : [...NAV_USER, ...(isStaff() ? NAV_STAFF : [])];
   $("#nav-links").innerHTML = links
     .map(([p, l]) => `<a href="#/${p}" class="${p === active ? "active" : ""}">${l}${p === "requests" ? `<span class="count" ${state.pending ? "" : "hidden"}>${state.pending}</span>` : ""}</a>`)
     .join("");
@@ -147,7 +156,8 @@ function renderDemoBar() {
   $("[data-reset]", bar).onclick = () => { state.items = null; store.resetDemo(); toast("รีเซ็ตข้อมูลตัวอย่างแล้ว"); };
 }
 
-const ROUTES = { "": home, items, borrow, my, profile, requests, stats, budget, settings };
+const about = (el, params) => aboutPage(el, { loggedIn: !!state.user, section: params.get("s") });
+const ROUTES = { "": home, about, login, items, borrow, my, profile, requests, stats, budget, settings };
 
 async function render() {
   const tk = ++renderToken;
@@ -155,7 +165,9 @@ async function render() {
   const [path, qs] = location.hash.replace(/^#\/?/, "").split("?");
   const params = new URLSearchParams(qs || "");
   let name = ROUTES[path] ? path : "";
-  if (!state.user) name = "";
+  if (!state.user) name = path === "login" ? "login" : "about"; // ก่อนเข้าสู่ระบบเห็นเฉพาะข้อมูลภายนอก + หน้าเข้าสู่ระบบ
+  else if (name === "login") { history.replaceState(null, "", "#/"); name = ""; }
+  else if (name === "about") { /* ข้อมูลภายนอกดูได้เสมอ */ }
   else if (!state.user.type || (state.user.type === "student" && !state.user.studentId)) name = "profile"; // ต้องกรอกข้อมูลผู้ใช้ (และรหัสนักเรียน) ก่อน
   if (STAFF_ONLY.has(name) && !isStaff()) name = "";
   renderNav(name);
@@ -225,7 +237,7 @@ function login(el) {
   el.innerHTML = `
     <section class="hero hero-login">
       <div class="eyebrow">${esc(CONFIG.unitName)} · ${esc(CONFIG.schoolName)}</div>
-      <h1>ยืม-คืนอุปกรณ์โสตฯ<br>ครบ จบในที่เดียว</h1>
+      <h1>เข้าสู่ระบบ<br>ยืม-คืนอุปกรณ์</h1>
       <p class="lead">ดูว่าอุปกรณ์ไหนว่าง ส่งคำขอยืม และติดตามสถานะได้ทุกขั้นตอน ทั้งครูและนักเรียน</p>
       <div class="auth-card">
         ${inAppNote()}
