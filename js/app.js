@@ -5,7 +5,7 @@ import {
   mondayOf, typeLabel, shortType, catIcon, itemIcon, studentInfo, academicYearOf, academicRange, catOrder, LOAN_STATUS, ITEM_STATUS, isOverdue, loanState, ACTIVE, loanUnits, itemsText,
   loanOn, loanEnd, lineText, extrasText, itemStatus, holdIn, holdOn, HOLD_KINDS, availableIn, computeStats, sortedEntries, monthShort, weekLabel, inAppBrowser,
 } from "./util.js";
-import { exportLoanReport, exportLoanExcel, exportLoanPdf, exportBudgetReport } from "./report.js";
+import { exportLoanReport, exportLoanExcel, exportLoanPdf, exportBudgetReport, exportBudgetExcel, exportBudgetPdf } from "./report.js";
 
 const state = { user: null, items: null, pending: 0, authMsg: "" };
 const view = $("#view");
@@ -1330,7 +1330,7 @@ async function budget(el) {
     host.innerHTML = `
       <div class="toolbar"><label class="clip">ปีงบประมาณ <select class="inp sm" id="b-fy">${Array.from({ length: 6 }, (_, i) => nowFy + 1 - i).map((y) => `<option${y === fy ? " selected" : ""}>${y}</option>`).join("")}</select></label>
         <span class="clip">${fiscalLabel(fy)}</span><span class="spacer"></span>
-        <button class="btn ghost" id="b-word">ดาวน์โหลดแบบบันทึก Word</button><button class="btn" id="b-add">เพิ่มรายการ</button></div>
+        <div class="export-btns"><span class="clip">ดาวน์โหลดแบบบันทึก</span><button class="btn sm" data-bexp="word">Word</button><button class="btn sm" data-bexp="excel">Excel</button><button class="btn sm" data-bexp="pdf">PDF</button></div><button class="btn" id="b-add">เพิ่มรายการ</button></div>
       <div class="kpis">
         <div class="kpi" style="grid-column:span 2"><div class="k">ยอดใช้จ่ายรวม ปีงบประมาณ ${fy}</div><div class="v">${money(total)}<small>บาท</small></div><div class="n">${rows.length} รายการ · หลักฐานแนบ ${rows.reduce((s, r) => s + (r.files?.length || 0), 0)} ไฟล์</div></div>
         ${FUND_TYPES.map((f) => `<div class="kpi"><div class="k">${f}</div><div class="v" style="font-size:22px;margin-top:10px">${money(sum("fundType", FUND_TYPES).get(f) || 0)}</div></div>`).join("")}
@@ -1348,7 +1348,12 @@ async function budget(el) {
         : `<div class="empty">ยังไม่มีรายการในปีงบประมาณ ${fy}</div>`}`;
     $("#b-fy", host).onchange = (e) => { budState.fy = +e.target.value; draw().catch(fail); };
     $("#b-add", host).onclick = () => budgetForm(null, fy, rows, () => draw().catch(fail));
-    $("#b-word", host).onclick = () => exportBudgetReport({ fy, rows, groups }).then(() => toast("ดาวน์โหลดแบบบันทึกแล้ว")).catch(fail);
+    const bexp = { word: exportBudgetReport, excel: exportBudgetExcel, pdf: exportBudgetPdf };
+    $$("[data-bexp]", host).forEach((b) => (b.onclick = async () => {
+      b.disabled = true; const t = b.textContent; b.textContent = "กำลังสร้าง…";
+      try { await bexp[b.dataset.bexp]({ fy, rows, groups }); toast(`ดาวน์โหลดแบบบันทึก ${t} แล้ว`); }
+      catch (e) { fail(e); } finally { b.disabled = false; b.textContent = t; }
+    }));
     $$("tr[data-id]", host).forEach((tr) => ($("[data-edit]", tr).onclick = () => budgetForm(rows.find((r) => r.id === tr.dataset.id), fy, rows, () => draw().catch(fail))));
   }
   await draw();

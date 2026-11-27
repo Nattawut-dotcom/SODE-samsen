@@ -41,7 +41,7 @@ function kit(font = FONT) {
 }
 
 // ------------------------------------------------------------
-//  ฝังฟอนต์ TH Sarabun New (ปกติ + หนา) ลงในไฟล์ Word
+//  ฝังฟอนต์ (ปกติ + หนา) ลงในไฟล์ Word
 //  เพื่อให้เปิดบนเครื่องที่ไม่ได้ติดตั้งฟอนต์นี้แล้วยังแสดงผลถูกต้อง
 // ------------------------------------------------------------
 const NEW = { name: FONT, files: ["fonts/THSarabunNew.ttf", "fonts/THSarabunNew-Bold.ttf"] };
@@ -290,7 +290,7 @@ export async function exportLoanPdf(args) {
 //  แบบบันทึกการใช้งบประมาณ (ตามแบบฟอร์มของงาน)
 // ------------------------------------------------------------
 export async function exportBudgetReport({ fy, rows, groups }) {
-  const { P, cell, row, table, doc } = kit();
+  const { P, cell, row, table, doc } = kit(PSK.name);
   const S = 24;
   const hc = (t, o = {}) => cell(t, { bold: true, align: "center", shade: H, size: S, ...o });
   const head = [
@@ -330,5 +330,144 @@ export async function exportBudgetReport({ fy, rows, groups }) {
     P(`รวมใช้จ่ายทั้งสิ้น ${money(total)} บาท จำนวน ${rows.length} รายการ`, { bold: true, before: 200 }),
     P(`ข้อมูล ณ วันที่ ${new Date().toLocaleDateString("th-TH", { day: "numeric", month: "long", year: "numeric" })}`, { size: 26 }),
   ];
-  return download(doc(out), `บันทึกการใช้งบประมาณ_ปีงบ${fy}.docx`);
+  return download(doc(out), `บันทึกการใช้งบประมาณ_ปีงบ${fy}.docx`, PSK);
+}
+
+// ข้อมูลกลางของแบบบันทึกงบประมาณ สำหรับ Excel / PDF
+function budgetModel({ fy, rows, groups }) {
+  const NCOL = 2 + BUDGET_CATEGORIES.length + FUND_TYPES.length + 1;
+  const fundHead = (f) => (f === "รายได้สถานศึกษา" ? "รายได้\nสถานศึกษา" : f === "รายได้เหลือจ่าย" ? "รายได้\nเหลือจ่าย" : f);
+  // body: { kind: "project"|"activity"|"item"|"empty", cells }
+  const body = [];
+  for (const g of groups) {
+    body.push({ kind: "project", text: g.project });
+    for (const a of g.acts) {
+      body.push({ kind: "activity", text: a.activity });
+      a.items.forEach((r, i) => body.push({ kind: "item", cells: [
+        i + 1, r.item,
+        ...BUDGET_CATEGORIES.map((c) => (r.category === c ? "✓" : "")),
+        ...FUND_TYPES.map((f) => (r.fundType === f ? Number(r.amount || 0) : "")),
+        r.recorder || "",
+      ] }));
+    }
+  }
+  if (!rows.length) body.push({ kind: "empty", text: "ยังไม่มีรายการ" });
+  const total = rows.reduce((s, r) => s + Number(r.amount || 0), 0);
+  const sumFund = FUND_TYPES.map((f) => rows.filter((r) => r.fundType === f).reduce((s, r) => s + Number(r.amount || 0), 0));
+  return {
+    NCOL, fundHead, body, total, sumFund,
+    widths: [5, 31, ...BUDGET_CATEGORIES.map(() => 6), ...FUND_TYPES.map(() => 9), 10],
+    title: `บันทึกการใช้งบประมาณ ${CONFIG.budgetUnitName} ปีงบประมาณ ${fy}`,
+    sub: `${CONFIG.schoolName} (${fiscalLabel(fy)})`,
+    summary: `รวมใช้จ่ายทั้งสิ้น ${money(total)} บาท จำนวน ${rows.length} รายการ`,
+    asOf: `ข้อมูล ณ วันที่ ${new Date().toLocaleDateString("th-TH", { day: "numeric", month: "long", year: "numeric" })}`,
+    file: `บันทึกการใช้งบประมาณ_ปีงบ${fy}`,
+  };
+}
+
+export async function exportBudgetExcel(args) {
+  await loadScript("https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js", () => !!window.ExcelJS);
+  const m = budgetModel(args);
+  const wb = new window.ExcelJS.Workbook();
+  wb.creator = CONFIG.unitName;
+  const ws = wb.addWorksheet("บันทึกงบประมาณ", { pageSetup: { paperSize: 9, orientation: "portrait", fitToPage: true, fitToWidth: 1, fitToHeight: 0 } });
+  const N = m.NCOL, nc = BUDGET_CATEGORIES.length, nf = FUND_TYPES.length;
+  ws.columns = [{ width: 6 }, { width: 44 }, ...Array(nc).fill({ width: 9 }), ...Array(nf).fill({ width: 13 }), { width: 16 }];
+  const F = (o = {}) => ({ name: PSK.name, size: o.size || 14, bold: !!o.bold });
+  const thin = { style: "thin", color: { argb: "FF999999" } };
+  const border = { top: thin, left: thin, bottom: thin, right: thin };
+  const fill = (c) => ({ type: "pattern", pattern: "solid", fgColor: { argb: "FF" + c } });
+  const moneyFmt = "#,##0.00";
+  const line = (text, o = {}) => {
+    const r = ws.addRow([text]); ws.mergeCells(r.number, 1, r.number, N);
+    r.getCell(1).font = F({ bold: o.bold, size: o.size || 16 });
+    r.getCell(1).alignment = { horizontal: o.align || "left", vertical: "middle" };
+  };
+  line(m.title, { bold: true, size: 18, align: "center" });
+  line(m.sub, { size: 16, align: "center" });
+  ws.addRow([]);
+  // หัวตาราง 2 แถว
+  const h1 = ws.addRow(["ที่", "รายการ\n(โครงการ/กิจกรรม)", ...BUDGET_CATEGORIES, "ประเภทเงิน (ระบุราคา)", ...Array(nf - 1).fill(""), "ลงชื่อ\nผู้บันทึก\nข้อมูล"]);
+  const h2 = ws.addRow(["", "", ...Array(nc).fill(""), ...FUND_TYPES.map(m.fundHead), ""]);
+  const a = h1.number, b = h2.number;
+  ws.mergeCells(a, 1, b, 1); ws.mergeCells(a, 2, b, 2);
+  for (let i = 0; i < nc; i++) ws.mergeCells(a, 3 + i, b, 3 + i);
+  ws.mergeCells(a, 3 + nc, a, 2 + nc + nf); ws.mergeCells(a, N, b, N);
+  for (const r of [h1, h2]) for (let i = 1; i <= N; i++) {
+    const c = r.getCell(i); c.font = F({ bold: true }); c.fill = fill("EDEDED"); c.border = border;
+    c.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
+  }
+  h1.height = 40; h2.height = 40;
+  const styleRow = (r, fn) => { for (let i = 1; i <= N; i++) { const c = r.getCell(i); c.border = border; c.font = F(); fn?.(c, i); } };
+  for (const x of m.body) {
+    if (x.kind === "item") {
+      const r = ws.addRow(x.cells);
+      styleRow(r, (c, i) => {
+        if (i === 2) c.alignment = { vertical: "top", wrapText: true };
+        else if (i > 2 + nc && i < N) { c.alignment = { horizontal: "right", vertical: "top" }; c.numFmt = moneyFmt; }
+        else c.alignment = { horizontal: "center", vertical: "top", wrapText: true };
+      });
+    } else {
+      const r = ws.addRow(x.kind === "activity" ? ["", x.text] : [x.text]);
+      const from = x.kind === "activity" ? 2 : 1;
+      styleRow(r, (c) => { if (x.kind !== "empty") c.font = F({ bold: true }); if (x.kind === "project") c.fill = fill("F7F7F7"); });
+      ws.mergeCells(r.number, from, r.number, N);
+      r.getCell(from).alignment = { horizontal: x.kind === "empty" ? "center" : "left", vertical: "middle", wrapText: true };
+    }
+  }
+  const tr = ws.addRow(["รวม", ...Array(1 + nc).fill(""), ...m.sumFund.map((v) => v || "-"), ""]);
+  styleRow(tr, (c, i) => { c.font = F({ bold: true }); if (i > 2 + nc && i < N) { c.alignment = { horizontal: "right" }; c.numFmt = moneyFmt; } });
+  ws.mergeCells(tr.number, 1, tr.number, 2 + nc);
+  tr.getCell(1).alignment = { horizontal: "center" };
+  ws.addRow([]);
+  line(m.summary, { bold: true });
+  line(m.asOf, { size: 14 });
+  ws.views = [{ state: "frozen", ySplit: b }];
+  const buf = await wb.xlsx.writeBuffer();
+  return saveBlob(new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }), `${m.file}.xlsx`);
+}
+
+export async function exportBudgetPdf(args) {
+  await loadScript("https://cdn.jsdelivr.net/npm/pdfmake@0.2.10/build/pdfmake.min.js", () => !!window.pdfMake);
+  const [reg, bold] = await loadFonts(PSK);
+  const vfs = { "psk.ttf": toB64(reg), "psk-b.ttf": toB64(bold) };
+  const fonts = { PSK: { normal: "psk.ttf", bold: "psk-b.ttf", italics: "psk.ttf", bolditalics: "psk-b.ttf" } };
+  const m = budgetModel(args);
+  const N = m.NCOL, nc = BUDGET_CATEGORIES.length, nf = FUND_TYPES.length, FS = 13;
+  const C = (text, o = {}) => ({ text: String(text ?? ""), fontSize: FS, ...o });
+  const HC = (text, o = {}) => C(text, { bold: true, alignment: "center", fillColor: "#EDEDED", ...o });
+  const pad = (n) => Array(n).fill({});
+  // ฟอนต์ PSK ไม่มีเครื่องหมาย ✓ จึงวาดเป็นรูปเวกเตอร์แทน
+  const CHECK = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12"><path d="M1.5 6.5l3 3 6-7" fill="none" stroke="#000" stroke-width="1.6"/></svg>';
+  const head = [
+    [HC("ที่", { rowSpan: 2 }), HC("รายการ\n(โครงการ/กิจกรรม)", { rowSpan: 2 }), ...BUDGET_CATEGORIES.map((c) => HC(c, { rowSpan: 2 })),
+      HC("ประเภทเงิน (ระบุราคา)", { colSpan: nf }), ...pad(nf - 1), HC("ลงชื่อ\nผู้บันทึก\nข้อมูล", { rowSpan: 2 })],
+    [{}, {}, ...pad(nc), ...FUND_TYPES.map((f) => HC(m.fundHead(f))), {}],
+  ];
+  const body = m.body.map((x) => {
+    if (x.kind === "project") return [C(x.text, { colSpan: N, bold: true, fillColor: "#F7F7F7" }), ...pad(N - 1)];
+    if (x.kind === "activity") return [C(""), C(x.text, { colSpan: N - 1, bold: true }), ...pad(N - 2)];
+    if (x.kind === "empty") return [C(x.text, { colSpan: N, alignment: "center" }), ...pad(N - 1)];
+    return x.cells.map((v, i) => i === 1 ? C(v)
+      : v === "✓" ? { svg: CHECK, width: 9, alignment: "center", margin: [0, 3, 0, 0] }
+      : i >= 2 + nc && i < N - 1 ? C(v === "" ? "" : money(v), { alignment: "right" })
+      : C(v, { alignment: "center" }));
+  });
+  const foot = [C("รวม", { colSpan: 2 + nc, bold: true, alignment: "center" }), ...pad(1 + nc),
+    ...m.sumFund.map((v) => C(v ? money(v) : "-", { bold: true, alignment: "right" })), C("")];
+  const dd = {
+    pageSize: "A4", pageOrientation: "landscape", pageMargins: [40, 36, 40, 36], defaultStyle: { font: "PSK", fontSize: 16, lineHeight: 1.05 },
+    content: [
+      { text: m.title, bold: true, fontSize: 18, alignment: "center" },
+      { text: m.sub, fontSize: 15, alignment: "center", margin: [0, 0, 0, 8] },
+      { table: { headerRows: 2, widths: m.widths.map((w) => `${w}%`), dontBreakRows: true, body: [...head, ...body, foot] },
+        layout: { hLineColor: () => "#999", vLineColor: () => "#999", hLineWidth: () => 0.5, vLineWidth: () => 0.5, paddingTop: () => 1, paddingBottom: () => 1 } },
+      { text: m.summary, bold: true, margin: [0, 10, 0, 0] },
+      { text: m.asOf, fontSize: 13 },
+    ],
+    footer: (p, n) => ({ text: `หน้า ${p} / ${n}`, alignment: "right", fontSize: 12, margin: [0, 10, 40, 0] }),
+    info: { title: m.file, author: CONFIG.unitName },
+  };
+  const blob = await new Promise((res) => window.pdfMake.createPdf(dd, null, fonts, vfs).getBlob(res));
+  return saveBlob(blob, `${m.file}.pdf`);
 }
