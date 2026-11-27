@@ -90,6 +90,7 @@ const opts = (arr, sel, placeholder) =>
   (placeholder ? `<option value="">${placeholder}</option>` : "") + arr.map((x) => `<option${x === sel ? " selected" : ""}>${esc(x)}</option>`).join("");
 const fmtSize = (n) => (n > 1048576 ? (n / 1048576).toFixed(1) + " MB" : Math.max(1, Math.round(n / 1024)) + " KB");
 const isStaff = () => state.user?.role === "staff";
+const isStudentOnly = () => state.user?.type === "student" && !isStaff();
 const who = (l) => `${esc(l.borrowerName)} ${typeBadge(l.borrowerType)}<div class="muted">${esc(l.borrowerType === "student" ? studentInfo(l) : l.department || "")}</div>`;
 const tm = (t) => (t ? ` ${t}` : "");
 const dateRange = (l) => l.dueDate !== l.borrowDate
@@ -132,7 +133,7 @@ function renderNav(active) {
     $("#nav-user").innerHTML = active === "login" ? "" : `<a class="btn sm" href="#/login">เข้าสู่ระบบ</a>`;
     return;
   }
-  const links = !u.type ? [] : [...NAV_USER, ...(isStaff() ? NAV_STAFF : [])];
+  const links = !u.type ? [] : [...NAV_USER.filter(([p]) => !(p === "manuals" && isStudentOnly())), ...(isStaff() ? NAV_STAFF : [])];
   $("#nav-links").innerHTML = links
     .map(([p, l]) => `<a href="#/${p}" class="${p === active ? "active" : ""}">${l}${p === "requests" ? `<span class="count" ${state.pending ? "" : "hidden"}>${state.pending}</span>` : ""}</a>`)
     .join("");
@@ -175,6 +176,7 @@ async function render(instant) {
   else if (name === "about") { /* ข้อมูลภายนอกดูได้เสมอ */ }
   else if (!state.user.type || (state.user.type === "student" && !state.user.studentId)) name = "profile"; // ต้องกรอกข้อมูลผู้ใช้ (และรหัสนักเรียน) ก่อน
   if (STAFF_ONLY.has(name) && !isStaff()) name = "";
+  if (name === "manuals" && isStudentOnly()) name = ""; // นักเรียนไม่มีฟีเจอร์คู่มือ
   renderNav(name);
   const el = document.createElement("div");
   // ถ้าหน้าใหม่โหลดข้อมูลนาน ให้เปลี่ยนเป็น "กำลังโหลด…" ก่อน (หลังล็อกอิน/ออกจากระบบ เปลี่ยนทันที)
