@@ -478,6 +478,7 @@ label.f small, legend small { color: var(--ink-3); }
 .ab-hero h1 { font-size: clamp(36px, 6.4vw, 60px); font-weight: 600; letter-spacing: -0.025em; line-height: 1.12; }
 .ab-hero .lead { font-size: clamp(17px, 2vw, 20px); color: var(--ink-2); max-width: 34em; margin: 16px auto 28px; text-wrap: balance; }
 .nw { white-space: nowrap; }
+@media (max-width: 600px) { .ab-svc p .nw { white-space: normal; } }
 .ab-social-row { display: flex; gap: 10px; justify-content: center; margin-top: 26px; }
 .ab-sbtn { width: 42px; height: 42px; border-radius: 50%; display: grid; place-items: center; background: #fff; border: 1px solid var(--line-soft); color: var(--ink); transition: transform .15s, box-shadow .15s; }
 .ab-sbtn:hover { transform: translateY(-2px); box-shadow: var(--shadow); text-decoration: none; }
