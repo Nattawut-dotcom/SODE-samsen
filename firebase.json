@@ -63,6 +63,13 @@
             }
           ]
         }
+      ],
+      "redirects": [
+        {
+          "source": "**",
+          "destination": "https://audio-samsen.web.app/",
+          "type": 302
+        }
       ]
     }
   ]
