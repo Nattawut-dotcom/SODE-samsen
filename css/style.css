@@ -486,6 +486,14 @@ label.f small, legend small { color: var(--ink-3); }
 .ab-sbtn.fb, .ab-social.fb .ab-sico { color: #1877f2; }
 .ab-sbtn.ig, .ab-social.ig .ab-sico { color: #d62976; }
 .ab-sbtn.tt, .ab-social.tt .ab-sico { color: #111; }
+.ab-sbtn.yt, .ab-social.yt .ab-sico { color: #ff0000; }
+.ab-login-hint { margin: 14px 0 0; font-size: 14px; color: var(--ink-2); }
+.ab-login-hint b { color: var(--ink); font-weight: 600; }
+.school-only { display: flex; gap: 12px; align-items: flex-start; background: #eef5ff; border: 1px solid #cfe0f7; border-radius: var(--radius-sm); padding: 12px 14px; text-align: left; }
+.school-only .so-ico { font-size: 22px; line-height: 1.2; }
+.school-only b { color: #0b4f97; }
+.school-only > div > b { display: block; font-size: 15.5px; margin-bottom: 2px; }
+.school-only span { font-size: 13.5px; color: var(--ink-2); line-height: 1.5; }
 .ab-sec { padding-top: 64px; padding-bottom: 64px; }
 .ab-head { text-align: center; margin-bottom: 32px; }
 .ab-head h2 { font-size: clamp(26px, 3.6vw, 36px); font-weight: 600; }
