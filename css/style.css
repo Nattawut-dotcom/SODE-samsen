@@ -86,6 +86,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .loading, .empty { color: var(--ink-3); text-align: center; padding: 56px 16px; }
 .footer { border-top: 1px solid var(--line-soft); background: var(--bg-soft); color: var(--ink-3); font-size: 12px; text-align: center; padding: 18px; }
 .footer p { margin: 0; }
+.footer .credit { margin-top: 4px; font-size: 11px; color: var(--ink-3); opacity: .8; }
 
 /* ---------- Hero ---------- */
 .hero { text-align: center; padding: 84px 22px 64px; }
