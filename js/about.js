@@ -19,7 +19,7 @@ export const ABOUT = {
     ["🎙️", "ห้องประชุมและเครื่องเสียง", "ดูแลห้องประชุม เครื่องเสียง และโสตทัศนูปกรณ์ให้พร้อมใช้งาน"],
     ["🛠️", "ซ่อมบำรุงอุปกรณ์", "ซ่อมบำรุงโสตทัศนูปกรณ์และเครื่องอิเล็กทรอนิกส์ภายในโรงเรียน"],
   ],
-  // ภาระหน้าที่ (ตามคำสั่งโรงเรียน) จัดกลุ่มเพื่ออ่านง่าย เลขข้อคงตามต้นฉบับ
+  // ภาระหน้าที่ (ตามคำสั่งโรงเรียน) จัดกลุ่มเพื่ออ่านง่าย — หน้าเว็บแสดงเลขข้อเรียงใหม่ 1–14 ตามลำดับ (ตัวเลขในข้อมูลด้านล่างคือเลขข้อในคำสั่งเดิม)
   duties: [
     { icon: "🗂️", title: "วางแผนและบริหารงาน", items: [
       [1, "จัดทำแผนปฏิบัติงาน/โครงการโสตทัศนศึกษาประจำปีและปฏิบัติตามแผนงาน/โครงการ พร้อมจัดทำแฟ้มสะสมงาน เพื่อเป็นแนวทางในการพัฒนางานต่อไป"],
@@ -70,6 +70,7 @@ function person(p, lead) {
 
 export function aboutPage(el, { loggedIn, section } = {}) {
   const A = ABOUT;
+  let no = 0; // เลขข้อเรียง 1, 2, 3 … ตามลำดับที่แสดง
   el.innerHTML = `
   <section class="ab-hero">
     <div class="wrap">
@@ -100,7 +101,7 @@ export function aboutPage(el, { loggedIn, section } = {}) {
   <section id="ab-duties" class="band"><div class="wrap ab-sec">
     <div class="ab-head"><span class="ab-kicker">ภาระหน้าที่</span><h2>หน้าที่และภาระงาน</h2></div>
     <div class="ab-duties">${A.duties.map((g) => `<div class="ab-dgroup"><h3><span>${g.icon}</span>${esc(g.title)}</h3>
-      <ol>${g.items.map(([n, t]) => `<li><b>${n}</b><span>${esc(t)}</span></li>`).join("")}</ol></div>`).join("")}</div>
+      <ol>${g.items.map(([, t]) => `<li><b>${++no}</b><span>${esc(t)}</span></li>`).join("")}</ol></div>`).join("")}</div>
   </div></section>
 
   <section id="ab-contact"><div class="wrap ab-sec">
