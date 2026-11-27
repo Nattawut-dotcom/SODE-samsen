@@ -6,7 +6,8 @@ import {
   loanOn, loanEnd, lineText, extrasText, itemStatus, holdIn, holdOn, HOLD_KINDS, availableIn, computeStats, sortedEntries, monthShort, weekLabel, inAppBrowser,
 } from "./util.js";
 import { aboutPage } from "./about.js";
-import { exportLoanReport, exportLoanExcel, exportLoanPdf, exportBudgetReport, exportBudgetExcel, exportBudgetPdf } from "./report.js";
+import { eventsPage, loadEvents, computeEventStats, eventType, eventTime, SLOT_NOTE } from "./events.js";
+import { exportEventReport, exportEventExcel, exportEventPdf, exportLoanReport, exportLoanExcel, exportLoanPdf, exportBudgetReport, exportBudgetExcel, exportBudgetPdf } from "./report.js";
 
 const state = { user: null, items: null, pending: 0, authMsg: "" };
 const view = $("#view");
@@ -116,7 +117,7 @@ async function refreshPending() {
 // ============================================================
 //  แถบนำทาง + Router
 // ============================================================
-const NAV_USER = [["", "หน้าหลัก"], ["items", "สถานะอุปกรณ์"], ["borrow", "ยืมอุปกรณ์"], ["my", "รายการของฉัน"]];
+const NAV_USER = [["", "หน้าหลัก"], ["events", "ปฏิทินงาน"], ["items", "สถานะอุปกรณ์"], ["borrow", "ยืมอุปกรณ์"], ["my", "รายการของฉัน"]];
 const NAV_STAFF = [["requests", "คำขอยืม-คืน"], ["stats", "สถิติ"], ["budget", "งบประมาณ"], ["settings", "ตั้งค่า"]];
 const STAFF_ONLY = new Set(NAV_STAFF.map((x) => x[0]));
 
@@ -157,7 +158,8 @@ function renderDemoBar() {
 }
 
 const about = (el, params) => aboutPage(el, { loggedIn: !!state.user, section: params.get("s") });
-const ROUTES = { "": home, about, login, items, borrow, my, profile, requests, stats, budget, settings };
+const events = (el) => eventsPage(el, { fail });
+const ROUTES = { "": home, about, login, events, items, borrow, my, profile, requests, stats, budget, settings };
 
 async function render() {
   const tk = ++renderToken;
@@ -1228,7 +1230,7 @@ async function requests(el) {
 // ============================================================
 //  สถิติการยืม (พนักงานโสต)
 // ============================================================
-const statState = { preset: "month", from: "", to: "", type: "", ay: 0 };
+const statState = { preset: "month", from: "", to: "", type: "", ay: 0, kind: "loan" };
 function presetRange(p) {
   const t = today();
   if (p === "week") { const m = mondayOf(t); return [m, addDays(m, 6)]; }
@@ -1259,7 +1261,13 @@ function barList(map, unit = "ครั้ง", limit = 12) {
   return `<div class="bars">${e.map(([k, v]) => `<div class="bar-row" data-tip="<b>${esc(k)}</b><br>${num(v)} ${unit}"><span class="lb">${esc(k)}</span><span class="track"><span class="fill" style="width:${(v / max) * 100}%"></span></span><span class="val">${num(v)}</span></div>`).join("")}</div>`;
 }
 async function stats(el) {
-  el.innerHTML = `<div class="wrap"><div class="page-head"><h1>สถิติการยืมอุปกรณ์</h1><p>นับจากรายการที่อนุมัติแล้ว (อนุมัติและคืนแล้ว) ตามวันที่ยืม แยกครูและนักเรียน ส่งออกเป็นรายงาน Word, Excel และ PDF ได้</p></div></div>
+  const KINDS = [["loan", "การยืมอุปกรณ์"], ["events", "งานและการใช้ห้อง"]];
+  const HEADS = {
+    loan: ["สถิติการยืมอุปกรณ์", "นับจากรายการที่อนุมัติแล้ว (อนุมัติและคืนแล้ว) ตามวันที่ยืม แยกครูและนักเรียน ส่งออกเป็นรายงาน Word, Excel และ PDF ได้"],
+    events: ["สถิติงานและการใช้ห้อง", "จากปฏิทินงานโสตฯ ที่ดึงเข้าระบบอัตโนมัติทุก 15 นาที ส่งออกเป็นรายงาน Word, Excel และ PDF ได้"],
+  };
+  el.innerHTML = `<div class="wrap"><div class="page-head head-row"><div><h1 id="st-h"></h1><p id="st-p"></p></div>
+      <div class="seg" id="st-kind">${KINDS.map(([k, l]) => `<button data-k="${k}">${l}</button>`).join("")}</div></div></div>
     <section class="band"><div class="wrap" style="padding-top:24px;padding-bottom:56px"><div id="st"></div></div></section>`;
   const host = $("#st", el);
   const PRESETS = [["week", "สัปดาห์นี้"], ["month", "เดือนนี้"], ["ay", "ปีการศึกษา"], ["fy", "ปีงบประมาณนี้"], ["custom", "กำหนดเอง"]];
@@ -1267,7 +1275,14 @@ async function stats(el) {
   if (!statState.ay) statState.ay = curAy;
   const AYS = []; for (let y = curAy; y >= Math.min(2568, curAy - 1); y--) AYS.push(y); // ปีปัจจุบันย้อนไปถึง 2568
   const TYPES = [["", "ทุกคน"], ["teacher", "ครู"], ["student", "นักเรียน"]];
+  const setHead = () => {
+    $("#st-h", el).textContent = HEADS[statState.kind][0]; $("#st-p", el).textContent = HEADS[statState.kind][1];
+    $$("#st-kind [data-k]", el).forEach((b) => b.classList.toggle("on", b.dataset.k === statState.kind));
+  };
+  $$("#st-kind [data-k]", el).forEach((b) => (b.onclick = () => { statState.kind = b.dataset.k; draw().catch(fail); }));
   async function draw() {
+    setHead();
+    if (statState.kind === "events") return drawEvents();
     const [from, to] = presetRange(statState.preset);
     statState.from = from; statState.to = to;
     const all = (await store.query("loans", { range: ["borrowDate", from, to] })).filter((l) => l.status === "approved" || l.status === "returned");
@@ -1317,6 +1332,61 @@ async function stats(el) {
     $$("[data-exp]", host).forEach((b) => (b.onclick = async () => {
       b.disabled = true; const t = b.textContent; b.textContent = "กำลังสร้าง…";
       try { await exp[b.dataset.exp]({ from, to, rows, stats: s, typeLabel: typeTxt, periodLabel: statState.preset === "ay" ? `ปีการศึกษา ${statState.ay}` : "" }); toast(`ดาวน์โหลดรายงาน ${t} แล้ว`); }
+      catch (e) { fail(e); } finally { b.disabled = false; b.textContent = t; }
+    }));
+  }
+  // ----- สถิติงานและการใช้ห้อง (จากปฏิทินงานโสตฯ) -----
+  async function drawEvents() {
+    const [from, to] = presetRange(statState.preset);
+    statState.from = from; statState.to = to;
+    const rows = await loadEvents(from, to);
+    const s = computeEventStats(rows);
+    const tr = trendBuckets(s, from, to);
+    const max = Math.max(1, ...tr.out.map((x) => x.v));
+    const step = Math.ceil(tr.out.length / 16);
+    const hrs = (h) => h.toLocaleString("th-TH", { maximumFractionDigits: 1 });
+    const periodLabel = statState.preset === "ay" ? `ปีการศึกษา ${statState.ay}` : "";
+    host.innerHTML = `
+      <div class="toolbar"><div class="seg">${PRESETS.map(([k, l]) => `<button data-p="${k}" class="${k === statState.preset ? "on" : ""}">${l}</button>`).join("")}</div>
+        ${statState.preset === "ay" ? `<select class="inp sm" id="s-ay" aria-label="เลือกปีการศึกษา">${AYS.map((y) => `<option value="${y}"${y === statState.ay ? " selected" : ""}>ปีการศึกษา ${y}</option>`).join("")}</select>` : ""}
+        <input class="inp sm" type="date" id="s-from" value="${from}" aria-label="ตั้งแต่วันที่"><span class="clip">ถึง</span><input class="inp sm" type="date" id="s-to" value="${to}" aria-label="ถึงวันที่">
+        <span class="spacer"></span><button class="btn ghost" id="s-print">พิมพ์</button><div class="export-btns"><span class="clip">ดาวน์โหลดรายงาน</span><button class="btn sm" data-exp="word">Word</button><button class="btn sm" data-exp="excel">Excel</button><button class="btn sm" data-exp="pdf">PDF</button></div></div>
+      <div class="kpis">
+        <div class="kpi"><div class="k">จำนวนงาน</div><div class="v">${num(s.events)}<small>งาน</small></div><div class="n">ใน ${num(s.days)} วัน</div></div>
+        <div class="kpi"><div class="k">ชั่วโมงให้บริการ</div><div class="v">${hrs(s.hours)}<small>ชม.</small></div><div class="n">จากงานที่ระบุเวลา ${num(s.events - s.allDayEvents)} งาน</div></div>
+        <div class="kpi"><div class="k">งานตลอดวัน</div><div class="v">${num(s.allDayEvents)}<small>งาน</small></div><div class="n">รวม ${num(s.occurrences - s.timed)} วัน-งาน</div></div>
+        <div class="kpi"><div class="k">เฉลี่ยต่อวันที่มีงาน</div><div class="v">${s.days ? hrs(s.occurrences / s.days) : 0}<small>งาน</small></div></div>
+      </div>
+      <div class="card" style="margin-bottom:16px"><h2>จำนวนงาน ${tr.unit}</h2><p class="sub">${periodLabel ? periodLabel + " · " : ""}${thDate(from)} – ${thDate(to)}</p>
+        <div class="trend"><div class="trend-plot">${tr.out.map((x) => `<div class="trend-col" data-tip="<b>${esc(x.full)}</b><br>${x.v} งาน">${x.v && tr.out.length <= 16 ? `<span class="tv">${x.v}</span>` : ""}<div class="b" style="height:${(x.v / max) * 100}%"></div></div>`).join("")}</div>
+        <div class="trend-x">${tr.out.map((x, i) => `<span>${i % step === 0 ? esc(x.label) : ""}</span>`).join("")}</div></div></div>
+      <div class="grid2">
+        <div class="card"><h2>ประเภทงาน</h2><p class="sub">จัดกลุ่มอัตโนมัติจากชื่องาน</p>${barList(s.byType, "งาน")}</div>
+        <div class="card"><h2>ช่วงเวลา</h2><p class="sub">ตามเวลาเริ่มงาน · ${SLOT_NOTE}</p>${barList(s.bySlot, "งาน")}</div>
+        <div class="card"><h2>สถานที่ / ห้อง</h2><p class="sub">จากช่อง "สถานที่" ในปฏิทิน</p>${s.hasLocation ? barList(s.byLocation, "งาน") : `<p class="muted-p" style="margin:0">ยังไม่มีงานที่ระบุสถานที่ — ใส่ชื่อห้องในช่อง "เพิ่มสถานที่" ของนัดหมายใน Google Calendar แล้วสถิติแยกตามห้องจะขึ้นที่นี่อัตโนมัติ</p>`}</div>
+        <div class="card"><h2>วันในสัปดาห์</h2><p class="sub">จำนวนวัน-งาน</p>${barList(s.byWeekday, "งาน", 7)}</div>
+        <div class="card"><h2>งานที่จัดบ่อย</h2><p class="sub">10 อันดับแรก</p>${barList(s.byTitle, "งาน", 10)}</div>
+        <div class="card"><h2>สรุปรายเดือน</h2><p class="sub">จำนวนวัน-งานและชั่วโมง</p>
+          ${s.byMonth.size ? `<table class="t"><thead><tr><th>เดือน</th><th class="num">งาน</th><th class="num">ชั่วโมง</th></tr></thead><tbody>${[...s.byMonth.keys()].sort().map((k) => `<tr><td>${parseYmd(k + "-01").toLocaleDateString("th-TH", { month: "long", year: "numeric" })}</td><td class="num">${num(s.byMonth.get(k))}</td><td class="num">${hrs(s.hoursByMonth.get(k) || 0)}</td></tr>`).join("")}</tbody></table>` : `<p style="color:var(--ink-3);font-size:14px;margin:0">ไม่มีข้อมูล</p>`}</div>
+      </div>
+      <div class="card" style="margin-top:16px"><h2>รายการงาน</h2><p class="sub">${num(rows.length)} รายการ</p>
+        ${rows.length ? `<div class="table-wrap flat"><table class="t"><thead><tr><th>วันที่</th><th>เวลา</th><th>ชื่องาน</th><th>ประเภท</th></tr></thead><tbody>
+          ${rows.map((e) => `<tr><td style="white-space:nowrap">${thDate(e.date)}</td><td style="white-space:nowrap">${eventTime(e)}</td><td><b>${esc(e.title)}</b>${e.location ? `<div class="muted">📍 ${esc(e.location)}</div>` : ""}</td><td class="muted">${esc(eventType(e.title))}</td></tr>`).join("")}
+        </tbody></table></div>` : `<p style="color:var(--ink-3);font-size:14px;margin:0">ไม่มีข้อมูล</p>`}</div>`;
+    $$("[data-p]", host).forEach((b) => (b.onclick = () => { statState.preset = b.dataset.p; draw().catch(fail); }));
+    const custom = () => {
+      const a = $("#s-from", host).value, b = $("#s-to", host).value;
+      if (!a || !b) return;
+      if (a > b) return toast("วันที่เริ่มต้องไม่เกินวันที่สิ้นสุด", true);
+      statState.preset = "custom"; statState.from = a; statState.to = b; draw().catch(fail);
+    };
+    if ($("#s-ay", host)) $("#s-ay", host).onchange = (e) => { statState.ay = Number(e.target.value); draw().catch(fail); };
+    $("#s-from", host).onchange = custom; $("#s-to", host).onchange = custom;
+    $("#s-print", host).onclick = () => window.print();
+    const exp = { word: exportEventReport, excel: exportEventExcel, pdf: exportEventPdf };
+    $$("[data-exp]", host).forEach((b) => (b.onclick = async () => {
+      b.disabled = true; const t = b.textContent; b.textContent = "กำลังสร้าง…";
+      try { await exp[b.dataset.exp]({ from, to, rows, stats: s, periodLabel, typeOf: eventType }); toast(`ดาวน์โหลดรายงาน ${t} แล้ว`); }
       catch (e) { fail(e); } finally { b.disabled = false; b.textContent = t; }
     }));
   }

@@ -159,8 +159,8 @@ function loanModel({ from, to, rows, stats, typeLabel = "ทุกคน", perio
 }
 
 // ---------- Word ----------
-export async function exportLoanReport(args) {
-  const m = loanModel(args);
+export const exportLoanReport = (args) => wordFromModel(loanModel(args));
+async function wordFromModel(m) {
   const { P, cell, row, table, doc } = kit(PSK.name);
   const pt = (s) => (s ? s * 2 : undefined); // ขนาดฟอนต์ docx เป็นครึ่งพอยต์
   const para = (x) => P(x.text, { bold: x.bold, size: pt(x.size), align: x.align, indent: x.indent, before: (x.before || 0) * 20, after: (x.after || 0) * 20 });
@@ -197,9 +197,9 @@ const saveBlob = (blob, filename) => {
 };
 
 // ---------- Excel ----------
-export async function exportLoanExcel(args) {
+export const exportLoanExcel = (args) => excelFromModel(loanModel(args));
+async function excelFromModel(m) {
   await loadScript("https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js", () => !!window.ExcelJS);
-  const m = loanModel(args);
   const wb = new window.ExcelJS.Workbook();
   wb.creator = CONFIG.unitName;
   const F = (o = {}) => ({ name: PSK.name, size: o.size || 16, bold: !!o.bold });
@@ -207,7 +207,7 @@ export async function exportLoanExcel(args) {
   const border = { top: thin, left: thin, bottom: thin, right: thin };
   const fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFEDEDED" } };
   const sheet = (name, landscape) => wb.addWorksheet(name, { pageSetup: { paperSize: 9, orientation: landscape ? "landscape" : "portrait", fitToPage: true, fitToWidth: 1, fitToHeight: 0 } });
-  const NC = 5;
+  const NC = Math.max(5, ...m.tables.map((t) => t.cols.length));
   const line = (ws, x) => {
     const r = ws.addRow([x.text]);
     ws.mergeCells(r.number, 1, r.number, NC);
@@ -239,16 +239,17 @@ export async function exportLoanExcel(args) {
     }
   };
   // ชีต 1: สรุป
-  const ws = sheet("สรุปสถิติ");
+  const ws = sheet(m.summarySheet || "สรุปสถิติ");
   ws.columns = [{ width: 8 }, { width: 46 }, { width: 16 }, { width: 14 }, { width: 6 }];
   m.head.forEach((x) => line(ws, x));
   m.tables.filter((t) => !t.detail).forEach((t) => putTable(ws, t));
   ws.addRow([]); m.sign.forEach((x) => line(ws, x));
   // ชีต 2: รายละเอียด
-  const wd = sheet("รายละเอียดการยืม", true);
-  wd.columns = [{ width: 6 }, { width: 22 }, { width: 30 }, { width: 46 }, { width: 24 }];
+  const dt = m.tables.find((t) => t.detail);
+  const wd = sheet(m.detailSheet || "รายละเอียดการยืม", true);
+  wd.columns = dt.cols.map(([, w]) => ({ width: Math.max(6, Math.round(w * 1.4)) }));
   line(wd, m.head[0]); line(wd, m.head[m.head.length - 2]);
-  putTable(wd, m.tables.find((t) => t.detail));
+  putTable(wd, dt);
   wd.views = [{ state: "frozen", ySplit: 4 }];
   const buf = await wb.xlsx.writeBuffer();
   return saveBlob(new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }), `${m.file}.xlsx`);
@@ -258,12 +259,12 @@ export async function exportLoanExcel(args) {
 // หมายเหตุ: ไม่แทรก zero-width space ตัดคำไทย เพราะฟอนต์ TH SarabunPSK ไม่มีตัวอักษรนี้ (จะแสดงเป็นกล่อง)
 const wrapTh = (t) => String(t);
 const toB64 = (bytes) => { let s = ""; for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000)); return btoa(s); };
-export async function exportLoanPdf(args) {
+export const exportLoanPdf = (args) => pdfFromModel(loanModel(args));
+async function pdfFromModel(m) {
   await loadScript("https://cdn.jsdelivr.net/npm/pdfmake@0.2.10/build/pdfmake.min.js", () => !!window.pdfMake);
   const [reg, bold] = await loadFonts(PSK);
   const vfs = { "psk.ttf": toB64(reg), "psk-b.ttf": toB64(bold) };
   const fonts = { PSK: { normal: "psk.ttf", bold: "psk-b.ttf", italics: "psk.ttf", bolditalics: "psk-b.ttf" } };
-  const m = loanModel(args);
   const para = (x) => ({ text: wrapTh(x.indent ? " ".repeat(10) + x.text : x.text), bold: !!x.bold, fontSize: x.size || 16, alignment: x.align || "left", margin: [0, x.before || 0, 0, x.after || 0] });
   const content = m.head.map(para);
   for (const t of m.tables) {
@@ -285,6 +286,49 @@ export async function exportLoanPdf(args) {
   const blob = await new Promise((res) => window.pdfMake.createPdf(dd, null, fonts, vfs).getBlob(res));
   return saveBlob(blob, `${m.file}.pdf`);
 }
+
+// ------------------------------------------------------------
+//  รายงานสถิติงานและการใช้ห้อง (จากปฏิทินงานโสตฯ) — Word / Excel / PDF ฟอนต์ TH SarabunPSK
+// ------------------------------------------------------------
+function eventModel({ from, to, rows, stats: s, periodLabel = "", typeOf }) {
+  const longD = (d) => thDate(d, { day: "numeric", month: "long", year: "numeric" });
+  const hrs = (h) => h.toLocaleString("th-TH", { maximumFractionDigits: 1 });
+  const head = [
+    { text: `รายงานสถิติงานและการใช้ห้อง ${CONFIG.unitName}`, bold: true, size: 18, align: "center" },
+    { text: CONFIG.schoolName, bold: true, size: 18, align: "center" },
+    ...(periodLabel ? [{ text: periodLabel, bold: true, align: "center" }] : []),
+    { text: `ระหว่างวันที่ ${longD(from)} ถึง ${longD(to)}`, align: "center", after: 10 },
+    { text: `ในช่วงเวลาดังกล่าว ${CONFIG.unitName}ให้บริการงานและการใช้ห้องรวมทั้งสิ้น ${num(s.events)} งาน ใน ${num(s.days)} วัน เป็นงานที่ระบุเวลา ${num(s.events - s.allDayEvents)} งาน รวม ${hrs(s.hours)} ชั่วโมง และงานตลอดวัน ${num(s.allDayEvents)} งาน (ข้อมูลจากปฏิทินงานโสตฯ) รายละเอียดดังนี้`, indent: true, after: 8 },
+  ];
+  const tables = [];
+  let no = 0;
+  const pct = (v, base) => (base ? ((v / base) * 100).toFixed(1) : "0.0");
+  const countTable = (title, entries, label, base) => tables.push({ title: `ตารางที่ ${++no} ${title}`,
+    cols: [["ที่", 8, "center"], [label, 60], ["จำนวน (งาน)", 16, "center"], ["ร้อยละ", 16, "center"]],
+    rows: entries.map(([k, v], i) => [i + 1, k, num(v), pct(v, base)]) });
+  const sorted = (m) => [...m.entries()].sort((a, b) => b[1] - a[1]);
+  tables.push({ title: `ตารางที่ ${++no} จำนวนงานรายเดือน`, cols: [["เดือน", 56], ["จำนวน (ครั้ง)", 22, "center"], ["ชั่วโมง", 22, "center"]],
+    rows: [...s.byMonth.keys()].sort().map((k) => [monthLabel(k), num(s.byMonth.get(k)), hrs(s.hoursByMonth.get(k) || 0)]),
+    foot: ["รวม", num(s.occurrences), hrs(s.hours)] });
+  countTable("จำนวนงานจำแนกตามประเภทงาน", sorted(s.byType), "ประเภทงาน", s.events);
+  countTable("จำนวนงานจำแนกตามช่วงเวลา", sorted(s.bySlot), "ช่วงเวลา", s.events);
+  if (s.hasLocation) countTable("จำนวนงานจำแนกตามสถานที่", sorted(s.byLocation), "สถานที่", s.events);
+  countTable("งานที่จัดบ่อย (10 อันดับแรก)", sorted(s.byTitle).slice(0, 10), "ชื่องาน", s.events);
+  const sd = (d) => thDate(d, { day: "numeric", month: "short", year: "2-digit" });
+  tables.push({ title: `ตารางที่ ${++no} รายละเอียดงาน`, small: true, detail: true,
+    cols: [["ที่", 6, "center"], ["วันที่", 14], ["เวลา", 14, "center"], ["ชื่องาน", 44], ["ประเภท / สถานที่", 22]],
+    rows: rows.map((e, i) => [i + 1, sd(e.date), e.allDay ? "ทั้งวัน" : `${e.start}–${e.end}`, e.title, [typeOf(e.title), e.location].filter(Boolean).join("\n")]) });
+  const sign = [
+    { text: "ลงชื่อ ............................................................ ผู้รายงาน", align: "right", before: 24 },
+    { text: "(............................................................)          ", align: "right" },
+    { text: `${CONFIG.unitName}          `, align: "right" },
+    { text: `ข้อมูล ณ วันที่ ${new Date().toLocaleDateString("th-TH", { day: "numeric", month: "long", year: "numeric" })}`, size: 13, before: 10 },
+  ];
+  return { head, tables, sign, file: `รายงานงานและการใช้ห้อง_${from}_ถึง_${to}`, summarySheet: "สรุปสถิติ", detailSheet: "รายละเอียดงาน" };
+}
+export const exportEventReport = (a) => wordFromModel(eventModel(a));
+export const exportEventExcel = (a) => excelFromModel(eventModel(a));
+export const exportEventPdf = (a) => pdfFromModel(eventModel(a));
 
 // ------------------------------------------------------------
 //  แบบบันทึกการใช้งบประมาณ (ตามแบบฟอร์มของงาน)
