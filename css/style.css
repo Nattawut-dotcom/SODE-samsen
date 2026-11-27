@@ -59,6 +59,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .role-tag { font-size: 11px; padding: 2px 8px; border-radius: 980px; background: var(--bg-soft); color: var(--ink-2); }
 .nav-user .uname { max-width: 150px; overflow: hidden; text-overflow: ellipsis; }
 .nav-user .uname, .brand em { display: none; }
+@media (min-width: 1100px) and (max-width: 1399px) { .nav-inner { max-width: none; padding: 0 18px; gap: 14px; } .nav-links { gap: 0; } .nav-links a { padding: 6px 8px; } }
 @media (min-width: 1400px) { .nav-inner { max-width: 1320px; } .nav-user .uname, .brand em { display: inline; } }
 @media (max-width: 760px) {
   .nav-inner { flex-wrap: wrap; height: auto; padding: 8px 16px; gap: 6px 12px; }
@@ -288,6 +289,7 @@ table.t { width: 100%; border-collapse: collapse; font-size: 14px; }
 .legend i.lg.returned { background: var(--gray-bg); border-color: var(--line); }
 .cal .day.sel { box-shadow: inset 0 0 0 2px var(--blue); }
 @media (max-width: 640px) {
+  .ev.gcal { background: #9b86d6; } .ev.gcal.allday { background: #5b43a8; }
   .ev.approved { background: var(--green); } .ev.overdue { background: var(--red); } .ev.returned { background: #b7b7bd; }
 }
 .cal-nav { align-items: center; }
@@ -456,6 +458,19 @@ label.f small, legend small { color: var(--ink-3); }
 .ev .ev-t { font-weight: 600; font-variant-numeric: tabular-nums; }
 
 .export-btns { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+
+/* ---------- ปฏิทินงาน ---------- */
+.ev.gcal { background: #efeaf8; color: #4b3592; }
+.ev.gcal.allday { background: #7d64c4; color: #fff; }
+.legend i.lg.gcal { background: #efeaf8; border-color: #d3c7ee; }
+.legend i.lg.gcal-all { background: #7d64c4; border-color: #7d64c4; }
+.ev-item { align-items: flex-start; cursor: default; }
+.ev-when { flex: none; width: 58px; font-size: 13px; font-weight: 600; color: #4b3592; display: grid; line-height: 1.25; padding-top: 1px; }
+.ev-when small { font-weight: 400; color: var(--ink-3); font-size: 12px; }
+.ev-when.all { font-size: 12px; color: #fff; background: #7d64c4; border-radius: 6px; padding: 2px 0; text-align: center; align-self: flex-start; }
+.di-body .ev-desc { white-space: pre-line; overflow: visible; color: var(--ink-2); }
+.di-body .ev-type { font-size: 11.5px; color: var(--ink-3); }
+.muted-p { color: var(--ink-3); font-size: 14px; }
 
 /* ---------- หน้าข้อมูลภายนอก (เกี่ยวกับเรา) ---------- */
 .ab-hero { text-align: center; padding: 64px 0 56px; background: radial-gradient(1200px 420px at 50% -120px, #eaf3fe 0%, rgba(234, 243, 254, 0) 70%); }
