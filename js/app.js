@@ -227,55 +227,34 @@ const externalUrl = () => `${location.origin}${location.pathname}?openExternalBr
 function inAppNote() {
   const app = inAppBrowser();
   if (!app) return "";
-  if (app === "LINE") return `<div class="note info inapp"><b>ใช้งานในแอป LINE ได้เลย</b> ด้วย<b>ชื่อผู้ใช้และรหัสผ่าน</b><br>
-    ถ้าจะเข้าสู่ระบบด้วย Google กดปุ่ม Google ด้านล่าง ระบบจะเปิดใน Safari / Chrome ให้ (Google ไม่อนุญาตให้ล็อกอินในแอป LINE)</div>`;
+  if (app === "LINE") return `<div class="note info inapp"><b>Google ไม่อนุญาตให้เข้าสู่ระบบในแอป LINE</b><br>
+    กดปุ่มด้านล่าง ระบบจะเปิดเว็บใน Safari / Chrome ให้ แล้วเข้าสู่ระบบด้วยบัญชีโรงเรียน</div>`;
   return `<div class="note warn inapp"><b>คุณกำลังเปิดเว็บนี้ในเบราว์เซอร์ของ ${esc(app)}</b><br>
-    การเข้าสู่ระบบด้วย Google ใช้ในแอปนี้ไม่ได้ ให้ใช้ <b>ชื่อผู้ใช้และรหัสผ่าน</b> หรือเปิดเว็บใน Safari / Chrome
+    การเข้าสู่ระบบด้วย Google ใช้ในแอปนี้ไม่ได้ กรุณาเปิดเว็บใน Safari / Chrome
     <div style="margin-top:8px"><button class="btn sm" type="button" data-copy>คัดลอกลิงก์ไปเปิดใน Safari</button></div></div>`;
 }
 
 function login(el) {
-  const inApp = !!inAppBrowser();
+  const inApp = inAppBrowser();
   el.innerHTML = `
     <section class="hero hero-login">
       <div class="eyebrow">${esc(CONFIG.unitName)} · ${esc(CONFIG.schoolName)}</div>
       <h1>เข้าสู่ระบบ<br>ยืม-คืนอุปกรณ์</h1>
-      <p class="lead">ดูว่าอุปกรณ์ไหนว่าง ส่งคำขอยืม และติดตามสถานะได้ทุกขั้นตอน ทั้งครูและนักเรียน</p>
+      <p class="lead">ใช้บัญชี Google ของโรงเรียน <b class="nw">(@${esc(CONFIG.allowedDomain)})</b> ทั้งครูและนักเรียน</p>
       <div class="auth-card">
         ${inAppNote()}
         ${state.authMsg ? `<p class="note err">${esc(state.authMsg)}</p>` : ""}
-        <div class="seg auth-tabs"><button data-tab="in" class="on">เข้าสู่ระบบ</button><button data-tab="up">สมัครสมาชิก</button></div>
-        <div data-pane="in">
-          ${inAppBrowser() === "LINE"
-            ? `<a class="btn google lg full-w" href="${esc(externalUrl())}">${G_LOGO} ใช้ Google · เปิดใน Safari ↗</a>`
-            : `<button class="btn google lg full-w" id="btn-google"${inApp ? " disabled" : ""}>${G_LOGO} เข้าสู่ระบบด้วย Google</button>`}
-          <div class="or"><span>หรือใช้ชื่อผู้ใช้</span></div>
-          <form id="f-in" class="form" novalidate style="grid-template-columns:1fr">
-            <label class="f"><span>ชื่อผู้ใช้</span><input class="inp" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" required></label>
-            <label class="f"><span>รหัสผ่าน</span><input class="inp" name="password" type="password" autocomplete="current-password" required></label>
-            <button class="btn lg" type="submit">เข้าสู่ระบบ</button>
-            <p class="hint">ลืมรหัสผ่าน กรุณาติดต่อพนักงานโสต</p>
-          </form>
-        </div>
-        <div data-pane="up" hidden>
-          <form id="f-up" class="form" novalidate>
-            <label class="f full"><span>ชื่อ-นามสกุล *</span><input class="inp" name="name" required maxlength="80" autocomplete="name"></label>
-            <fieldset class="full"><legend>ฉันเป็น *</legend>${typeChips("type", "")}</fieldset>
-            ${typeFields({})}
-            <label class="f full"><span>ชื่อผู้ใช้ * <small>(a–z, 0–9, จุด, ขีด ยาว 3–30 ตัว)</small></span><input class="inp" name="username" required autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="30"></label>
-            <label class="f"><span>รหัสผ่าน * <small>(อย่างน้อย 6 ตัว)</small></span><input class="inp" name="password" type="password" required minlength="6" autocomplete="new-password"></label>
-            <label class="f"><span>ยืนยันรหัสผ่าน *</span><input class="inp" name="confirm" type="password" required minlength="6" autocomplete="new-password"></label>
-            <button class="btn lg full" type="submit">สมัครสมาชิก</button>
-            <p class="hint full">มีบัญชี Google อยู่แล้ว ใช้ปุ่ม "เข้าสู่ระบบด้วย Google" ได้เลยโดยไม่ต้องสมัคร</p>
-          </form>
-        </div>
+        ${inApp === "LINE"
+          ? `<a class="btn google lg full-w" href="${esc(externalUrl())}">${G_LOGO} เข้าสู่ระบบด้วย Google · เปิดใน Safari ↗</a>`
+          : `<button class="btn google lg full-w" id="btn-google"${inApp ? " disabled" : ""}>${G_LOGO} เข้าสู่ระบบด้วย Google</button>`}
+        <p class="hint" style="text-align:center;margin:0">เข้าสู่ระบบไม่ได้ กรุณาติดต่อพนักงานโสต</p>
       </div>
     </section>
     <section class="band"><div class="wrap" style="padding-top:56px;padding-bottom:64px">
       <div class="tiles">
         <div class="tile"><span class="ico">📦</span><h3>เห็นสถานะอุปกรณ์ทันที</h3><p>รู้ว่ากล้อง โน้ตบุ๊ก Apple TV หรือสาย HDMI ชิ้นไหนว่าง ถูกยืม หรือกำลังรออนุมัติ</p></div>
         <div class="tile"><span class="ico">📝</span><h3>ขอยืมได้ในไม่กี่ขั้นตอน</h3><p>เลือกอุปกรณ์ วันยืม วันคืน แล้วส่งคำขอ พนักงานโสตอนุมัติและแจ้งผลในระบบ</p></div>
-        <div class="tile"><span class="ico">📊</span><h3>สถิติและรายงานอัตโนมัติ</h3><p>สรุปการยืมแยกครูและนักเรียน รายสัปดาห์ รายเดือน รายปีงบประมาณ ส่งออกเป็น Word ได้ทันที</p></div>
+        <div class="tile"><span class="ico">📅</span><h3>ปฏิทินงานของโสตฯ</h3><p>ดูงานและการใช้ห้องประชุมจากปฏิทินของงานโสตฯ ที่อัปเดตอัตโนมัติ</p></div>
       </div>
     </div></section>`;
   state.authMsg = "";
@@ -285,32 +264,8 @@ function login(el) {
     try { await navigator.clipboard.writeText(url); toast("คัดลอกลิงก์แล้ว นำไปวางใน Safari หรือ Chrome"); }
     catch { prompt("คัดลอกลิงก์นี้ไปเปิดใน Safari หรือ Chrome", url); }
   };
-  $$("[data-tab]", el).forEach((b) => (b.onclick = () => {
-    $$("[data-tab]", el).forEach((x) => x.classList.toggle("on", x === b));
-    $$("[data-pane]", el).forEach((p) => (p.hidden = p.dataset.pane !== b.dataset.tab));
-  }));
   const gBtn = $("#btn-google", el);
   if (gBtn) gBtn.onclick = () => store.signIn().catch(fail);
-  const fi = $("#f-in", el);
-  fi.onsubmit = async (e) => {
-    e.preventDefault();
-    if (!fi.reportValidity()) return;
-    const btn = $("button[type=submit]", fi); btn.disabled = true;
-    try { await store.signInUsername(fi.elements.username.value.trim().toLowerCase(), fi.elements.password.value); }
-    catch (err) { btn.disabled = false; fail(err); }
-  };
-  const fu = $("#f-up", el);
-  wireTypeFields(fu);
-  fu.onsubmit = async (e) => {
-    e.preventDefault();
-    if (!fu.reportValidity()) return;
-    const username = fu.elements.username.value.trim().toLowerCase();
-    if (!USERNAME_RE.test(username)) return toast("ชื่อผู้ใช้ใช้ได้เฉพาะ a–z, 0–9, จุด และขีด ยาว 3–30 ตัว", true);
-    if (fu.elements.password.value !== fu.elements.confirm.value) return toast("รหัสผ่านทั้งสองช่องไม่ตรงกัน", true);
-    const btn = $("button[type=submit]", fu); btn.disabled = true;
-    try { await store.register({ username, password: fu.elements.password.value, profile: readProfile(fu) }); toast("สมัครสมาชิกสำเร็จ"); }
-    catch (err) { btn.disabled = false; fail(err); }
-  };
 }
 
 // ============================================================
@@ -1555,11 +1510,10 @@ async function openFile(meta) {
 // ============================================================
 const userState = { q: "", role: "", type: "", st: "" };
 async function settings(el) {
-  el.innerHTML = `<div class="wrap"><div class="page-head head-row"><div><h1>ตั้งค่า</h1><p>จัดการบัญชีผู้ใช้งาน สิทธิ์ การระงับ และการลบบัญชี</p></div>
-      <button class="btn" id="u-new">สร้างบัญชีชื่อผู้ใช้</button></div></div>
+  el.innerHTML = `<div class="wrap"><div class="page-head head-row"><div><h1>ตั้งค่า</h1><p>จัดการบัญชีผู้ใช้งาน สิทธิ์ การระงับ และการลบบัญชี · เข้าสู่ระบบได้เฉพาะบัญชี Google ของโรงเรียน</p></div>
+</div></div>
     <section class="band"><div class="wrap" style="padding-top:24px;padding-bottom:56px"><div id="set"></div></div></section>`;
   const host = $("#set", el);
-  $("#u-new", el).onclick = () => accountForm(() => draw().catch(fail));
   async function draw() {
     const users = (await store.list("users")).sort((a, b) => (a.role === "staff" ? 0 : 1) - (b.role === "staff" ? 0 : 1) || (a.name || "").localeCompare(b.name || "", "th"));
     const me = state.user.uid;

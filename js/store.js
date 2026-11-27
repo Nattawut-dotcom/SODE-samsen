@@ -37,6 +37,12 @@ function checkSize(file) {
 }
 
 const BANNED_MSG = "บัญชีนี้ถูกระงับการใช้งาน กรุณาติดต่อพนักงานโสต";
+const DOMAIN_MSG = `เข้าสู่ระบบได้เฉพาะบัญชี Google ของโรงเรียน (@${CONFIG.allowedDomain}) เท่านั้น`;
+// อีเมลโรงเรียน (รวมโดเมนย่อย)
+const schoolEmail = (e) => {
+  const d = (CONFIG.allowedDomain || "").toLowerCase(), m = String(e || "").toLowerCase();
+  return !d || m.endsWith("@" + d) || m.endsWith("." + d);
+};
 // ข้อมูลโปรไฟล์ที่ผู้ใช้แก้เองได้
 const PROFILE_KEYS = ["name", "type", "classroom", "studentNo", "studentId", "department", "phone"];
 const pickProfile = (p = {}) => Object.fromEntries(PROFILE_KEYS.map((k) => [k, String(p[k] ?? "").trim()]));
@@ -196,12 +202,11 @@ function firebaseStore() {
     onAuth(cb) {
       A.onAuthStateChanged(auth, async (u) => {
         if (!u) return cb(null);
+        let outside = false;
         try {
           const usernameUser = isUsernameEmail(u.email);
-          if (!usernameUser && CONFIG.allowedDomain && !(u.email || "").toLowerCase().endsWith("@" + CONFIG.allowedDomain.toLowerCase())) {
-            await A.signOut(auth);
-            return cb(null, new Error(`กรุณาใช้อีเมล @${CONFIG.allowedDomain} ในการเข้าสู่ระบบ`));
-          }
+          // บัญชีนอกโดเมนโรงเรียน: ให้ฐานข้อมูลตัดสิน (กฎมีอีเมลยกเว้นสำหรับตรวจระบบ) ถ้าอ่านโปรไฟล์ไม่ได้จะออกจากระบบ
+          outside = !schoolEmail(u.email);
           const ref = F.doc(db, "users", u.uid);
           const snap = await F.getDoc(ref);
           let d;
@@ -223,14 +228,14 @@ function firebaseStore() {
           cb(toUser(u.uid, d));
         } catch (e) {
           // ถ้าอ่านโปรไฟล์ไม่ได้เพราะถูกลบ/ระงับ ให้ออกจากระบบ
-          if (String(e?.code || e?.message).includes("permission")) { await A.signOut(auth).catch(() => {}); return cb(null, new Error(BANNED_MSG)); }
+          if (String(e?.code || e?.message).includes("permission")) { await A.signOut(auth).catch(() => {}); return cb(null, new Error(outside ? DOMAIN_MSG : BANNED_MSG)); }
           cb(null, e);
         }
       });
     },
     async signIn() {
       const p = new A.GoogleAuthProvider();
-      p.setCustomParameters({ prompt: "select_account", ...(CONFIG.allowedDomain ? { hd: CONFIG.allowedDomain } : {}) });
+      p.setCustomParameters({ prompt: "select_account" });
       await A.signInWithPopup(auth, p);
     },
     async signInUsername(username, password) {

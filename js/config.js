@@ -15,9 +15,9 @@ export const CONFIG = {
     appId: "1:481706427970:web:44f55b6bc3d51f6a954fdb",
   },
 
-  // 2) จำกัดให้ล็อกอินได้เฉพาะอีเมลโดเมนโรงเรียน เช่น "samsenwit.ac.th"
-  //    เว้นว่าง "" = บัญชี Google ใดก็ได้
-  allowedDomain: "",
+  // 2) เข้าสู่ระบบได้เฉพาะบัญชี Google ของโรงเรียน (รวมโดเมนย่อย เช่น @xxx.samsenwit.ac.th)
+  //    การบังคับจริงอยู่ใน firestore.rules (ฟังก์ชัน allowedAccount — มีอีเมลยกเว้นสำหรับตรวจระบบ)
+  allowedDomain: "samsenwit.ac.th",
 
   // 3) ข้อมูลหน่วยงาน
   schoolName: "โรงเรียนสามเสนวิทยาลัย",
