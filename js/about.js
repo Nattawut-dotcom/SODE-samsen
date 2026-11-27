@@ -98,7 +98,7 @@ export function aboutPage(el, { loggedIn, section } = {}) {
   </div></section>
 
   <section id="ab-duties" class="band"><div class="wrap ab-sec">
-    <div class="ab-head"><span class="ab-kicker">ภาระหน้าที่</span><h2>หน้าที่และภาระงาน</h2><p>ตามคำสั่งโรงเรียน ${A.duties.reduce((s, g) => s + g.items.length, 0)} ข้อ จัดเป็นหมวดเพื่อให้อ่านง่าย</p></div>
+    <div class="ab-head"><span class="ab-kicker">ภาระหน้าที่</span><h2>หน้าที่และภาระงาน</h2></div>
     <div class="ab-duties">${A.duties.map((g) => `<div class="ab-dgroup"><h3><span>${g.icon}</span>${esc(g.title)}</h3>
       <ol>${g.items.map(([n, t]) => `<li><b>${n}</b><span>${esc(t)}</span></li>`).join("")}</ol></div>`).join("")}</div>
   </div></section>
