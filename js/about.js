@@ -74,7 +74,7 @@ const fit = (t) => (String(t).split(" ").every((w) => w.length <= 24) ? noBreak(
 function person(p, lead) {
   const pic = p.photo ? `<img src="${esc(p.photo)}" alt="${esc(p.name)}" loading="lazy">` : `<span aria-hidden="true">${esc(initial(p.name))}</span>`;
   return `<figure class="ab-person${lead ? " lead" : ""}"><div class="ab-pic">${pic}</div>
-    <figcaption><b>${esc(p.name)}</b><span>${esc(p.role)}</span></figcaption></figure>`;
+    <figcaption><b>${noBreak(p.name)}</b><span>${esc(p.role)}</span></figcaption></figure>`;
 }
 
 export function aboutPage(el, { loggedIn, section } = {}) {
