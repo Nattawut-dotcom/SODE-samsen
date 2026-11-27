@@ -100,5 +100,22 @@ service cloud.firestore {
     // ปฏิทินงาน: Apps Script ของบัญชีโรงเรียนเป็นผู้เขียน (ผ่าน Google OAuth จึงไม่ผ่านกฎนี้) ผู้ใช้ที่เข้าสู่ระบบอ่านได้
     match /calendarEvents/{id} { allow read: if active(); allow delete: if isStaff(); }
     match /meta/{id} { allow read: if active(); }
+    // คู่มือการใช้งาน: audience = 'teacher' (เฉพาะครู/บุคลากร) หรือ 'all' (ทุกคนที่เข้าสู่ระบบ)
+    // พนักงานโสตอ่าน/เพิ่ม/ลบได้ทั้งหมด · ไฟล์ PDF ของคู่มือเก็บแยกที่ manualFiles พร้อม audience เดียวกัน
+    function canSeeManual(aud) {
+      return isStaff() || (active() && (aud == 'all' || (aud == 'teacher' && me().get('type', '') == 'teacher')));
+    }
+    match /manuals/{id} {
+      allow read: if canSeeManual(resource.data.get('audience', 'teacher'));
+      allow write: if isStaff();
+    }
+    match /manualFiles/{id} {
+      allow read: if canSeeManual(resource.data.get('audience', 'teacher'));
+      allow write: if isStaff();
+      match /chunks/{n} {
+        allow read: if canSeeManual(get(/databases/$(database)/documents/manualFiles/$(id)).data.get('audience', 'teacher'));
+        allow write: if isStaff();
+      }
+    }
   }
 }
