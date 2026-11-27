@@ -521,6 +521,7 @@ label.f small, legend small { color: var(--ink-3); }
 .ab-person.lead b { font-size: 20px; }
 .ab-person span { font-size: 13.5px; color: var(--ink-2); }
 .ab-person.lead figcaption span { color: var(--blue); font-weight: 500; }
+.ab-person figcaption b .nw { font-size: inherit; color: inherit; font-weight: inherit; }
 .ab-duties { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; align-items: start; }
 .ab-dgroup { background: #fff; border-radius: var(--radius); padding: 22px 24px; }
 .ab-dgroup h3 { font-size: 18px; font-weight: 600; display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
